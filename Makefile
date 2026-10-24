@@ -11,7 +11,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test clean
+.PHONY: all test hw-test soc-test firmware clean
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
 $(BUILD):
@@ -31,7 +31,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test
+test: $(UNIT_TESTS) all hw-test soc-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command and pt2-clone oracle"; python3 -m unittest discover -s tests -p 'test_*.py'
 
@@ -73,3 +73,33 @@ hw-test: $(BUILD)/paula_tb $(BUILD)/paula_tb_rt
 		status=$$?; cat $(BUILD)/paula_results; \
 		echo "Verilog Paula: $$(grep -c ': ok' $(BUILD)/paula_results) of $$(wc -l < $(BUILD)/paula_cmds) runs match the C model"; \
 		exit $$status
+
+# ---- firmware (RISC-V soft CPU) ---------------------------------------------
+RV_PREFIX ?= riscv64-unknown-elf-
+RV_CFLAGS := -march=rv32im -mabi=ilp32 -Os -ffreestanding -nostdlib -Wall -Wextra -Werror \
+             -ffunction-sections -fdata-sections -Ifirmware -Ifirmware/replayer
+FW_SRC    := firmware/runtime/start.S firmware/runtime/libc.c firmware/main.c
+FW_WORDS  := 8192
+
+$(BUILD)/fw/firmware.elf: $(FW_SRC) firmware/runtime/link.ld $(wildcard firmware/*.h) | $(BUILD)
+	mkdir -p $(BUILD)/fw
+	$(RV_PREFIX)gcc $(RV_CFLAGS) -T firmware/runtime/link.ld -Wl,--gc-sections -o $@ $(FW_SRC) -lgcc
+	$(RV_PREFIX)size $@
+
+$(BUILD)/fw/firmware0.hex: $(BUILD)/fw/firmware.elf tools/bin2lanes.py
+	$(RV_PREFIX)objcopy -O binary $< $(BUILD)/fw/firmware.bin
+	python3 tools/bin2lanes.py $(BUILD)/fw/firmware.bin $(FW_WORDS) $(BUILD)/fw/firmware
+
+firmware: $(BUILD)/fw/firmware0.hex
+
+# ---- SoC simulation ---------------------------------------------------------
+SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/third_party/picorv32/picorv32.v
+
+$(BUILD)/soc_tb: $(SOC_RTL) hw/sim/soc_tb.cpp $(BUILD)/fw/firmware0.hex | $(BUILD)
+	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module soc \
+		-GFIRMWARE='"$(CURDIR)/$(BUILD)/fw/firmware"' $(SOC_RTL) $(CURDIR)/hw/sim/soc_tb.cpp \
+		-Mdir $(BUILD)/obj_soc -o soc_tb >$(BUILD)/soc_tb.log 2>&1 || (cat $(BUILD)/soc_tb.log; false)
+	cp $(BUILD)/obj_soc/soc_tb $@
+
+soc-test: $(BUILD)/soc_tb
+	$(BUILD)/soc_tb "mod-player ready"
