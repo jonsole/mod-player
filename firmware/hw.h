@@ -10,6 +10,9 @@
 #define UART_STATUS REG32(0x20000004u)  /* bit 0: still sending */
 #define UART_BUSY   0x1u
 
+#define SDRAM_BASE  0x10000000u
+#define SDRAM_SIZE  (32u << 20)
+
 #define LEDS        REG32(0x20000200u)
 #define SWITCHES    REG32(0x20000204u)
 

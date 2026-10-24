@@ -78,7 +78,7 @@ hw-test: $(BUILD)/paula_tb $(BUILD)/paula_tb_rt
 RV_PREFIX ?= riscv64-unknown-elf-
 RV_CFLAGS := -march=rv32im -mabi=ilp32 -Os -ffreestanding -nostdlib -Wall -Wextra -Werror \
              -ffunction-sections -fdata-sections -Ifirmware -Ifirmware/replayer
-FW_SRC    := firmware/runtime/start.S firmware/runtime/libc.c firmware/main.c
+FW_SRC    := firmware/runtime/start.S firmware/runtime/libc.c firmware/main.c firmware/memtest.c
 FW_WORDS  := 8192
 
 $(BUILD)/fw/firmware.elf: $(FW_SRC) firmware/runtime/link.ld $(wildcard firmware/*.h) | $(BUILD)
@@ -93,16 +93,17 @@ $(BUILD)/fw/firmware0.hex: $(BUILD)/fw/firmware.elf tools/bin2lanes.py
 firmware: $(BUILD)/fw/firmware0.hex
 
 # ---- SoC simulation ---------------------------------------------------------
-SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/third_party/picorv32/picorv32.v
+SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/sdram_ctrl.v hw/rtl/third_party/picorv32/picorv32.v
 
-$(BUILD)/soc_tb: $(SOC_RTL) hw/sim/soc_tb.cpp $(BUILD)/fw/firmware0.hex | $(BUILD)
+$(BUILD)/soc_tb: $(SOC_RTL) hw/sim/soc_tb.cpp hw/sim/sdram_model.h $(BUILD)/fw/firmware0.hex | $(BUILD)
 	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module soc \
 		-GFIRMWARE='"$(CURDIR)/$(BUILD)/fw/firmware"' $(SOC_RTL) $(CURDIR)/hw/sim/soc_tb.cpp \
+		-CFLAGS "-I$(CURDIR)/hw/sim" \
 		-Mdir $(BUILD)/obj_soc -o soc_tb >$(BUILD)/soc_tb.log 2>&1 || (cat $(BUILD)/soc_tb.log; false)
 	cp $(BUILD)/obj_soc/soc_tb $@
 
 soc-test: $(BUILD)/soc_tb
-	$(BUILD)/soc_tb "mod-player ready"
+	$(BUILD)/soc_tb "sdram ok" 60000000
 
 # ---- delta-sigma audio output ------------------------------------------------
 $(BUILD)/dsm_tb: hw/rtl/dac_dsm.v hw/sim/dsm_tb.cpp | $(BUILD)

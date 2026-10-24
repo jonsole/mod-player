@@ -3,6 +3,7 @@
 //
 // Address map (see firmware/hw.h):
 //   0x0000_0000  firmware RAM (block RAM)
+//   0x1000_0000  SDRAM, 32 MB
 //   0x2000_0000  serial port: +0 data (write: send a byte), +4 status (bit 0: busy)
 //   0x2000_0200  board I/O: +0 LEDs (write), +4 DIP switches (read)
 module soc #(
@@ -17,7 +18,19 @@ module soc #(
     output       uart_tx,
     input        uart_rx,
     output reg [7:0] leds,
-    input  [3:0] switches
+    input  [3:0] switches,
+    // SDRAM (the board top adds the inverted clock and the DQ tristate)
+    output        sd_cke,
+    output        sd_cs_n,
+    output        sd_ras_n,
+    output        sd_cas_n,
+    output        sd_we_n,
+    output [1:0]  sd_ba,
+    output [12:0] sd_a,
+    output [1:0]  sd_dqm,
+    output [15:0] sd_dq_o,
+    output        sd_dq_oe,
+    input  [15:0] sd_dq_i
 );
     // ---- CPU ----
     wire        mem_valid, mem_instr;
@@ -43,6 +56,7 @@ module soc #(
 
     // ---- address decode ----
     wire sel_ram  = mem_addr[31:28] == 4'h0;
+    wire sel_sdram = mem_addr[31:28] == 4'h1;
     wire sel_io   = mem_addr[31:28] == 4'h2;
     wire sel_uart = sel_io && mem_addr[15:8] == 8'h00;
     wire sel_gpio = sel_io && mem_addr[15:8] == 8'h02;
@@ -54,6 +68,19 @@ module soc #(
         .clk(clk), .addr(mem_addr[RAM_BITS+1:2]),
         .we(mem_valid && sel_ram && !ram_busy ? mem_wstrb : 4'b0000),
         .wdata(mem_wdata), .rdata(ram_rdata)
+    );
+
+    // ---- SDRAM ----
+    wire        sd_ack;
+    wire [31:0] sd_rdata;
+    sdram_ctrl sdram (
+        .clk(clk), .rst(rst),
+        .req(mem_valid && sel_sdram && !mem_ready), .we(mem_wstrb != 0),
+        .addr(mem_addr[24:2]), .wdata(mem_wdata), .wstrb(mem_wstrb),
+        .ack(sd_ack), .rdata(sd_rdata),
+        .sd_cke(sd_cke), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n),
+        .sd_we_n(sd_we_n), .sd_ba(sd_ba), .sd_a(sd_a), .sd_dqm(sd_dqm),
+        .sd_dq_o(sd_dq_o), .sd_dq_oe(sd_dq_oe), .sd_dq_i(sd_dq_i)
     );
 
     // ---- serial port ----
@@ -76,6 +103,11 @@ module soc #(
                 ram_busy <= !ram_busy;
                 if (ram_busy) begin
                     mem_rdata <= ram_rdata;
+                    mem_ready <= 1'b1;
+                end
+            end else if (sel_sdram) begin
+                if (sd_ack) begin
+                    mem_rdata <= sd_rdata;
                     mem_ready <= 1'b1;
                 end
             end else if (sel_uart) begin
