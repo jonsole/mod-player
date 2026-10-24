@@ -171,6 +171,8 @@ uint32_t replayer_tick(replayer_t *r)
         r->tick = 0;
         if (r->patt_del_time2 == 0) {
             r->dmacon_temp = 0;
+            r->play_pos = r->pos;
+            r->play_row = r->row;
             const uint8_t *row = current_row(r);
             for (int v = 0; v < MOD_CHANNELS; v++) {
                 play_voice(r, v, row + v * 4);
@@ -190,5 +192,6 @@ uint32_t replayer_tick(replayer_t *r)
         if (r->pos_jump)
             next_position(r);
     }
-    return (CIA_TIMER_BASE / r->bpm) * CCK_PER_CIA_TICK;
+    /* The CIA timer fires on underflow, one count after reaching zero. */
+    return (CIA_TIMER_BASE / r->bpm + 1) * CCK_PER_CIA_TICK;
 }

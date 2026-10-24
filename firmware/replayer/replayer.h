@@ -36,6 +36,7 @@ typedef struct {
     paula_port_t port;
     replayer_channel_t ch[MOD_CHANNELS];
     uint8_t speed, tick, row, pos;
+    uint8_t play_pos, play_row; /* the Position and Row most recently read */
     uint8_t pbreak_pos;
     uint8_t pos_jump;
     uint8_t patt_del_time, patt_del_time2;

@@ -165,13 +165,14 @@ static void speed_effect_sets_ticks_per_row(void)
     CHECK_EQ(t[3], 10);
 }
 
-/* Default tempo 125 BPM: CIA timer 1773447/125 = 14187, times 5 colour clocks. */
+/* Default tempo 125 BPM: CIA timer 1773447/125 = 14187; the CIA fires on
+ * underflow, so a tick is 14188 CIA cycles of 5 colour clocks each. */
 static void each_tick_lasts_one_cia_period_at_125_bpm(void)
 {
     one_note_song();
     start();
-    CHECK_EQ(replayer_tick(&rp), 70935);
-    CHECK_EQ(replayer_tick(&rp), 70935);
+    CHECK_EQ(replayer_tick(&rp), 70940);
+    CHECK_EQ(replayer_tick(&rp), 70940);
 }
 
 /* The last period written to voice 1 this tick (an empty row first
