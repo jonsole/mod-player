@@ -2,6 +2,16 @@
 
 A standalone player for Amiga ProTracker music files, built on the Scarab miniSpartan6+ FPGA board. It recreates the Amiga's split between a CPU running replay software and a dedicated audio chip.
 
+## Music
+
+**Song**:
+The music itself: its samples, patterns and playing order, as loaded into the player's memory.
+_Avoid_: module, tune, track
+
+**MOD file**:
+The file on disk that holds one Song in Amiga ProTracker format.
+_Avoid_: module, .mod (as a noun)
+
 ## Playback
 
 **Paula**:
