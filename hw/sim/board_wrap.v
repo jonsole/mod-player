@@ -23,7 +23,8 @@ module board_wrap (
     assign dq_from_fpga = SDRAM_D;
     assign dq_fpga_drives = board.soc.sd_dq_oe;
 
-    top #(.FIRMWARE(`FIRMWARE)) board (
+    top #(.FW0({`FIRMWARE, "0.hex"}), .FW1({`FIRMWARE, "1.hex"}),
+          .FW2({`FIRMWARE, "2.hex"}), .FW3({`FIRMWARE, "3.hex"})) board (
         .CLK50(CLK50), .LEDS(LEDS), .SW(SW), .FTDI_D0(FTDI_D0), .FTDI_D1(FTDI_D1),
         .AUDIO1(AUDIO1), .AUDIO2(AUDIO2),
         .SDRAM_CLK(SDRAM_CLK), .SDRAM_CKE(SDRAM_CKE), .SDRAM_CSn(SDRAM_CSn),

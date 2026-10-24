@@ -97,7 +97,7 @@ SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/uart_rx.v hw/rtl/s
 
 SOC_TB_DEPS := $(SOC_RTL) hw/sim/soc_tb.cpp hw/sim/sdram_model.h $(SIM_C) $(BUILD)/fw/firmware0.hex
 SOC_TB_ARGS = $(VFLAGS) -Wno-lint -Wno-style --top-module soc \
-	-GFIRMWARE='"$(CURDIR)/$(BUILD)/fw/firmware"' $(SOC_RTL) $(CURDIR)/hw/sim/soc_tb.cpp \
+	$(foreach n,0 1 2 3,-GFW$(n)='"$(CURDIR)/$(BUILD)/fw/firmware$(n).hex"') $(SOC_RTL) $(CURDIR)/hw/sim/soc_tb.cpp \
 	$(addprefix $(CURDIR)/,$(SIM_C)) \
 	-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer"
 
@@ -165,11 +165,11 @@ board-test: $(BUILD)/board_tb
 # Synthesis check with Yosys for Spartan-6 (a stand-in for XST: catches
 # constructs that don't synthesise and reports resource use)
 synth-check: $(BUILD)/fw/firmware0.hex
-	@echo "read_verilog $(filter-out %sim_primitives.v,$(BOARD_RTL))" > $(BUILD)/synth.ys
-	@echo 'chparam -set FIRMWARE "$(BUILD)/fw/firmware" top' >> $(BUILD)/synth.ys
+	@echo "read_verilog $(addprefix $(CURDIR)/,$(filter-out %sim_primitives.v,$(BOARD_RTL)))" > $(BUILD)/synth.ys
 	@echo "synth_xilinx -family xc6s -top top" >> $(BUILD)/synth.ys
 	@echo "stat" >> $(BUILD)/synth.ys
-	yosys -q -l $(BUILD)/yosys.log -s $(BUILD)/synth.ys >/dev/null
+	@# run next to the firmware files, as the ISE build does
+	cd $(BUILD)/fw && yosys -q -l ../yosys.log -s ../synth.ys >/dev/null
 	@echo "Spartan-6 resources (Yosys estimate; the XC6SLX25 has 15032 LUTs, 30064 flip-flops,"
 	@echo "38 DSP48A1 and 52 RAMB16):"
 	@python3 tools/yosys_stats.py $(BUILD)/yosys.log

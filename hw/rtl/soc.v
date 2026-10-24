@@ -17,7 +17,10 @@ module soc #(
     parameter BAUD        = 1000000,
     parameter RAM_WORDS   = 8192,           // 32 KB
     parameter RAM_BITS    = 13,
-    parameter FIRMWARE    = "build/fw/firmware",
+    parameter FW0         = "firmware0.hex",  // block-RAM files, one per byte lane
+    parameter FW1         = "firmware1.hex",
+    parameter FW2         = "firmware2.hex",
+    parameter FW3         = "firmware3.hex",
     parameter PAULA_FREE_RUN = 0                 // simulation only: Paula as fast as it can
 ) (
     input        clk,
@@ -82,7 +85,7 @@ module soc #(
     // ---- firmware RAM ----
     wire [31:0] ram_rdata;
     reg         ram_busy;
-    bram #(.WORDS(RAM_WORDS), .ADDR_BITS(RAM_BITS), .INIT_PREFIX(FIRMWARE)) ram (
+    bram #(.WORDS(RAM_WORDS), .ADDR_BITS(RAM_BITS), .INIT0(FW0), .INIT1(FW1), .INIT2(FW2), .INIT3(FW3)) ram (
         .clk(clk), .addr(mem_addr[RAM_BITS+1:2]),
         .we(mem_valid && sel_ram && !ram_busy ? mem_wstrb : 4'b0000),
         .wdata(mem_wdata), .rdata(ram_rdata)

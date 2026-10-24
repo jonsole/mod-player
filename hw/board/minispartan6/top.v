@@ -9,7 +9,10 @@
 //   SW1..4      DIP switches to ground, with pull-ups: on = 0
 //   LEDS        active high
 module top #(
-    parameter FIRMWARE = "firmware"       // $readmemh files firmware0.hex .. firmware3.hex
+    parameter FW0 = "firmware0.hex",      // the firmware, one $readmemh file per byte lane
+    parameter FW1 = "firmware1.hex",
+    parameter FW2 = "firmware2.hex",
+    parameter FW3 = "firmware3.hex"
 ) (
     input         CLK50,
     output [7:0]  LEDS,
@@ -46,7 +49,7 @@ module top #(
     wire [15:0] sd_dq_o, sd_dq_i;
     wire        audio_valid;
     wire signed [15:0] audio_l, audio_r;
-    soc #(.FIRMWARE(FIRMWARE)) soc (
+    soc #(.FW0(FW0), .FW1(FW1), .FW2(FW2), .FW3(FW3)) soc (
         .clk(clk), .rst(rst),
         .uart_tx(FTDI_D1), .uart_rx(FTDI_D0),
         .leds(LEDS), .switches(~SW),
