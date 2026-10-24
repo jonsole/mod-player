@@ -104,6 +104,9 @@ def effect_song(name, cells, positions=(0,)):
     song.sample(2, square_cycle(16) * 8, volume=64, loop=(64, 64), name="square")
     song.sample(3, [round(100 * math.sin(i / 3)) * (600 - i) // 600 for i in range(600)],
                 volume=56, finetune=0, name="pluck")
+    for number, finetune in ((4, 15), (5, 7), (6, 8), (7, 1)):  # -1, +7, -8, +1
+        song.sample(number, square_cycle(32) * 2, volume=50, finetune=finetune,
+                    loop=(0, 64), name="finetune %d" % finetune)
     for cell in cells:
         song.note(*cell)
     song.positions = list(positions)
@@ -150,12 +153,87 @@ def volume_fine_song():
     return effect_song("volume fine", cells)
 
 
+def arpeggio_song():
+    cells = []
+    for ch, (period, sample) in enumerate(((C2, 1), (C3, 4), (B1, 6), (A2, 5))):
+        cells.append((0, 0, ch, period, sample, 0, 0x37))
+        cells += _rows(0, ch, 1, 1, [(0, 0x47), (0, 0xC0), (0, 0x0C), (0, 0xFF), (0, 0)])
+    # high notes: base + offset runs off the end of the finetune section
+    cells += [(0, 8, 0, 113, 1, 0, 0xFF), (0, 9, 1, 113, 4, 0, 0xFF),
+              (0, 10, 2, 113, 6, 0, 0xFF), (0, 11, 3, 113, 7, 0, 0xFF)]
+    # arpeggio on a period that is not in the table (after a slide)
+    cells += [(0, 16, 0, C2, 1, 1, 3), (0, 17, 0, 0, 0, 0, 0x47), (0, 18, 0, 0, 0, 0, 0x47)]
+    cells += [(0, 20, 1, 907, 6, 0, 0x3F)]
+    return effect_song("arpeggio", cells)
+
+
+def portamento_song():
+    cells = [(0, 0, 0, C2, 1, 1, 2), (0, 0, 1, C2, 2, 2, 3), (0, 0, 2, C3, 4, 1, 0x40),
+             (0, 0, 3, C1, 5, 2, 0x40)]
+    cells += _rows(0, 0, 1, 1, [(1, 2)] * 6 + [(1, 0)] * 2 + [(2, 0x10)] * 4)
+    cells += _rows(0, 1, 1, 1, [(2, 3)] * 3 + [(0xE, 0x2F), (0xE, 0x1F), (0xE, 0x15)] * 3)
+    cells += _rows(0, 2, 1, 1, [(1, 0x40)] * 4)     # clamps at 113
+    cells += _rows(0, 3, 1, 1, [(2, 0x40)] * 4)     # clamps at 856
+    # ProTracker bug: the 113 check ignores the sign, so a big slide wraps
+    cells += [(0, 12, 2, 120, 1, 1, 0xFF), (0, 13, 2, 0, 0, 1, 0xFF), (0, 14, 2, 0, 0, 0, 0x37),
+              (0, 15, 2, 0, 0, 4, 0x44), (0, 16, 2, 0, 0, 3, 0x10)]
+    cells += _rows(0, 0, 20, 1, [(0xE, 0x11), (0xE, 0x10), (0xE, 0x21), (0xE, 0x2F)])
+    return effect_song("portamento", cells)
+
+
+def tone_portamento_song():
+    cells = [(0, 0, 0, C2, 1, 0, 0), (0, 2, 0, C3, 0, 3, 4)]
+    cells += _rows(0, 0, 3, 1, [(3, 0)] * 6)                  # memory
+    cells += [(0, 9, 0, C1, 0, 3, 0x20), (0, 10, 0, 0, 0, 5, 0x02), (0, 11, 0, 0, 0, 5, 0x20),
+              (0, 12, 0, C1, 0, 3, 0)]                         # same period: nothing to do
+    cells += [(0, 0, 1, C2, 4, 0, 0), (0, 1, 1, E2, 4, 3, 1), (0, 2, 1, G2, 6, 3, 2),
+              (0, 3, 1, 0, 0, 0xE, 0x31), (0, 4, 1, C3, 6, 3, 3), (0, 5, 1, 0, 0, 3, 0),
+              (0, 6, 1, 0, 0, 3, 0), (0, 7, 1, 0, 0, 0xE, 0x30), (0, 8, 1, C1, 5, 3, 8)]
+    cells += [(0, 0, 2, 0, 0, 3, 5), (0, 1, 2, C2, 2, 3, 0x10),   # tone porta from silence
+              (0, 4, 2, 4000, 2, 3, 0x10), (0, 6, 2, 50, 2, 3, 0x10)]
+    cells += [(0, 16, 3, C2, 7, 0, 0), (0, 17, 3, A2, 7, 5, 0x41), (0, 18, 3, 0, 0, 5, 0x0F)]
+    # fast slides that reach their target, so the target period itself is
+    # checked (negative finetunes pick the entry one above: a PT quirk)
+    for i, (sample, a, b) in enumerate(((6, C2, G2), (4, E2, C3), (6, C1, C3), (5, G2, C2),
+                                        (4, 856, 113), (6, 113, 856))):
+        cells += [(0, 24 + i * 3, 2, a, sample, 0, 0), (0, 25 + i * 3, 2, b, sample, 3, 0xFF)]
+    return effect_song("tone portamento", cells)
+
+
+def vibrato_song():
+    cells = [(0, 0, 0, C2, 1, 4, 0x48)]
+    cells += _rows(0, 0, 1, 1, [(4, 0), (4, 0x80), (4, 0x0F), (4, 0), (6, 0x01), (6, 0x10)])
+    cells += [(0, 0, 1, E2, 2, 0xE, 0x41)] + _rows(0, 1, 1, 1, [(4, 0x6A)] * 6)   # ramp
+    cells += [(0, 8, 1, E2, 2, 0xE, 0x42)] + _rows(0, 1, 9, 1, [(4, 0x5C)] * 4)   # square
+    cells += [(0, 14, 1, E2, 2, 0xE, 0x43)] + _rows(0, 1, 15, 1, [(4, 0x5C)] * 4)  # random
+    cells += [(0, 20, 1, E2, 2, 0xE, 0x44), (0, 21, 1, E2, 2, 4, 0x44), (0, 22, 1, G2, 2, 4, 0),
+              (0, 23, 1, C2, 2, 0xE, 0x40), (0, 24, 1, C2, 2, 4, 0x44)]  # no-retrigger flag
+    cells += [(0, 0, 2, G2, 4, 4, 0xFF), (0, 1, 2, 0, 0, 4, 0)]
+    # ramp tremolo reads the vibrato position (PT bug)
+    cells += [(0, 0, 3, C2, 1, 0, 0)] + _rows(0, 3, 1, 1, [(4, 0x88)] * 10 + [(0xE, 0x71)] +
+                                              [(7, 0x48)] * 10)
+    return effect_song("vibrato", cells)
+
+
+def finetune_song():
+    cells = []
+    for i, period in enumerate((C1, E1, G1, C2, E2, G2, C3, E3, G3, 113, 856, 900, 100)):
+        for ch, sample in enumerate((4, 5, 6, 7)):
+            cells.append((0, i * 2, ch, period, sample, 0, 0))
+    return effect_song("finetune", cells)
+
+
 GENERATED = {
     "plain-notes.mod": plain_notes_song,
     "volume-set.mod": volume_set_song,
     "volume-slide.mod": volume_slide_song,
     "tremolo.mod": tremolo_song,
     "volume-fine.mod": volume_fine_song,
+    "arpeggio.mod": arpeggio_song,
+    "portamento.mod": portamento_song,
+    "tone-portamento.mod": tone_portamento_song,
+    "vibrato.mod": vibrato_song,
+    "finetune.mod": finetune_song,
 }
 
 

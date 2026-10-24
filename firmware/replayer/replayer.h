@@ -19,7 +19,11 @@ typedef struct {
     uint32_t n_wavestart;
     uint16_t n_length;
     uint16_t n_replen;
-    uint16_t n_period;
+    int16_t n_period;     /* signed, as in ProTracker: porta up can wrap it */
+    int16_t n_wantedperiod;
+    uint8_t n_toneportspeed;
+    uint8_t n_toneportdirec;
+    uint8_t n_glissfunk;  /* high nibble: invert-loop speed; low: glissando */
     uint8_t n_finetune;
     uint8_t n_volume;
     uint8_t n_dmabit;
@@ -44,6 +48,7 @@ typedef struct {
     uint8_t patt_del_time, patt_del_time2;
     uint8_t bpm;
     uint16_t dmacon_temp;
+    uint8_t low_mask;        /* fine portamento limits the slide to 0..15 */
 } replayer_t;
 
 #define REPLAYER_NO_SAMPLE 0xFFFFFFFFu

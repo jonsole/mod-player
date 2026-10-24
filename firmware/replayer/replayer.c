@@ -96,6 +96,180 @@ static void tremolo(replayer_t *r, int v) /* 7xy */
     c->n_tremolopos = (uint8_t)(c->n_tremolopos + ((c->n_tremolocmd >> 2) & 0x3C));
 }
 
+/* ---- pitch effects ------------------------------------------------------- */
+
+static const int16_t *finetune_periods(const replayer_channel_t *c)
+{
+    return &replayer_periods[c->n_finetune * 37];
+}
+
+static void arpeggio(replayer_t *r, int v) /* 0xy */
+{
+    replayer_channel_t *c = &r->ch[v];
+    unsigned arp;
+    switch (r->tick % 3) {
+    case 1:
+        arp = (c->n_cmd >> 4) & 0xF;
+        break;
+    case 2:
+        arp = c->n_cmd & 0xF;
+        break;
+    default:
+        write_voice(r, v, PAULA_PER, (uint16_t)c->n_period);
+        return;
+    }
+    /* At finetune -1 this can read up to 15 entries past the table, which
+     * holds ProTracker's own overflow values for exactly this case. */
+    const int16_t *periods = finetune_periods(c);
+    for (int i = 0; i < 37; i++) {
+        if (c->n_period >= periods[i]) {
+            write_voice(r, v, PAULA_PER, (uint16_t)periods[i + arp]);
+            return;
+        }
+    }
+}
+
+static void porta_up(replayer_t *r, int v) /* 1xx */
+{
+    replayer_channel_t *c = &r->ch[v];
+    c->n_period = (int16_t)(c->n_period - ((c->n_cmd & 0xFF) & r->low_mask));
+    r->low_mask = 0xFF;
+    /* ProTracker bug: the sign is dropped before the check, so an underflow
+     * is not clamped. */
+    if ((c->n_period & 0xFFF) < 113)
+        c->n_period = (int16_t)((c->n_period & 0xF000) | 113);
+    write_voice(r, v, PAULA_PER, (uint16_t)c->n_period & 0xFFF);
+}
+
+static void porta_down(replayer_t *r, int v) /* 2xx */
+{
+    replayer_channel_t *c = &r->ch[v];
+    c->n_period = (int16_t)(c->n_period + ((c->n_cmd & 0xFF) & r->low_mask));
+    r->low_mask = 0xFF;
+    if ((c->n_period & 0xFFF) > 856)
+        c->n_period = (int16_t)((c->n_period & 0xF000) | 856);
+    write_voice(r, v, PAULA_PER, (uint16_t)c->n_period & 0xFFF);
+}
+
+static void fine_porta_up(replayer_t *r, int v) /* E1x */
+{
+    if (r->tick == 0) {
+        r->low_mask = 0xF;
+        porta_up(r, v);
+    }
+}
+
+static void fine_porta_down(replayer_t *r, int v) /* E2x */
+{
+    if (r->tick == 0) {
+        r->low_mask = 0xF;
+        porta_down(r, v);
+    }
+}
+
+/* Index of the first table entry not above `period`, as ProTracker finds
+ * it for tone portamento (35 if none). */
+static int porta_index(const int16_t *periods, int period)
+{
+    for (int i = 0; i < 37; i++)
+        if (period >= periods[i])
+            return i;
+    return 35;
+}
+
+static void set_tone_porta(replayer_channel_t *c) /* the note of a 3xx/5xy row */
+{
+    const int16_t *periods = finetune_periods(c);
+    int i = porta_index(periods, c->n_note & 0xFFF);
+    if ((c->n_finetune & 8) && i > 0)
+        i--;
+    c->n_wantedperiod = periods[i];
+    c->n_toneportdirec = 0;
+    if (c->n_period == c->n_wantedperiod)
+        c->n_wantedperiod = 0;
+    else if (c->n_period > c->n_wantedperiod)
+        c->n_toneportdirec = 1;
+}
+
+static void tone_port_no_change(replayer_t *r, int v)
+{
+    replayer_channel_t *c = &r->ch[v];
+    if (c->n_wantedperiod <= 0)
+        return;
+    if (c->n_toneportdirec) {
+        c->n_period = (int16_t)(c->n_period - c->n_toneportspeed);
+        if (c->n_period <= c->n_wantedperiod) {
+            c->n_period = c->n_wantedperiod;
+            c->n_wantedperiod = 0;
+        }
+    } else {
+        c->n_period = (int16_t)(c->n_period + c->n_toneportspeed);
+        if (c->n_period >= c->n_wantedperiod) {
+            c->n_period = c->n_wantedperiod;
+            c->n_wantedperiod = 0;
+        }
+    }
+    if ((c->n_glissfunk & 0xF) == 0) {
+        write_voice(r, v, PAULA_PER, (uint16_t)c->n_period);
+    } else { /* glissando: round to a note */
+        const int16_t *periods = finetune_periods(c);
+        write_voice(r, v, PAULA_PER, (uint16_t)periods[porta_index(periods, c->n_period)]);
+    }
+}
+
+static void tone_portamento(replayer_t *r, int v) /* 3xx */
+{
+    replayer_channel_t *c = &r->ch[v];
+    if (c->n_cmd & 0xFF) {
+        c->n_toneportspeed = c->n_cmd & 0xFF;
+        c->n_cmd &= 0xFF00;
+    }
+    tone_port_no_change(r, v);
+}
+
+static void vibrato2(replayer_t *r, int v)
+{
+    replayer_channel_t *c = &r->ch[v];
+    unsigned pos = (c->n_vibratopos >> 2) & 0x1F;
+    unsigned depth;
+    switch (c->n_wavecontrol & 3) {
+    case 0: /* sine */
+        depth = replayer_vibrato_table[pos];
+        break;
+    case 1: /* ramp */
+        depth = c->n_vibratopos < 128 ? pos << 3 : 255 - (pos << 3);
+        break;
+    default: /* square */
+        depth = 255;
+        break;
+    }
+    depth = (depth * (c->n_vibratocmd & 0xF)) >> 7;
+    uint16_t period = c->n_vibratopos < 128 ? (uint16_t)(c->n_period + depth)
+                                            : (uint16_t)(c->n_period - depth);
+    write_voice(r, v, PAULA_PER, period);
+    c->n_vibratopos = (uint8_t)(c->n_vibratopos + ((c->n_vibratocmd >> 2) & 0x3C));
+}
+
+static void vibrato(replayer_t *r, int v) /* 4xy */
+{
+    replayer_channel_t *c = &r->ch[v];
+    if (c->n_cmd & 0x0F)
+        c->n_vibratocmd = (uint8_t)((c->n_vibratocmd & 0xF0) | (c->n_cmd & 0x0F));
+    if (c->n_cmd & 0xF0)
+        c->n_vibratocmd = (uint8_t)((c->n_cmd & 0xF0) | (c->n_vibratocmd & 0x0F));
+    vibrato2(r, v);
+}
+
+static void set_gliss_control(replayer_channel_t *c) /* E3x */
+{
+    c->n_glissfunk = (uint8_t)((c->n_glissfunk & 0xF0) | (c->n_cmd & 0x0F));
+}
+
+static void set_vibrato_control(replayer_channel_t *c) /* E4x */
+{
+    c->n_wavecontrol = (uint8_t)((c->n_wavecontrol & 0xF0) | (c->n_cmd & 0x0F));
+}
+
 /* ---- song flow ----------------------------------------------------------- */
 
 static void set_speed(replayer_t *r, replayer_channel_t *c) /* Fxx */
@@ -113,6 +287,18 @@ static void e_commands(replayer_t *r, int v)
 {
     replayer_channel_t *c = &r->ch[v];
     switch ((c->n_cmd >> 4) & 0xF) {
+    case 0x1:
+        fine_porta_up(r, v);
+        return;
+    case 0x2:
+        fine_porta_down(r, v);
+        return;
+    case 0x3:
+        set_gliss_control(c);
+        return;
+    case 0x4:
+        set_vibrato_control(c);
+        return;
     case 0x7:
         set_tremolo_control(c);
         return;
@@ -146,7 +332,7 @@ static void check_more_effects(replayer_t *r, int v)
         volume_change(r, c);
         return;
     default:
-        write_voice(r, v, PAULA_PER, c->n_period);
+        write_voice(r, v, PAULA_PER, (uint16_t)c->n_period);
         return;
     }
 }
@@ -160,12 +346,27 @@ static void chkefx2(replayer_t *r, int v)
     unsigned cmd = (c->n_cmd >> 8) & 0xF;
     switch (cmd) {
     case 0x0:
+        arpeggio(r, v);
+        return;
     case 0x1:
+        porta_up(r, v);
+        return;
     case 0x2:
+        porta_down(r, v);
+        return;
     case 0x3:
+        tone_portamento(r, v);
+        return;
     case 0x4:
+        vibrato(r, v);
+        return;
     case 0x5:
+        tone_port_no_change(r, v);
+        volume_slide(c);
+        return;
     case 0x6:
+        vibrato2(r, v);
+        volume_slide(c);
         return;
     case 0xE:
         e_commands(r, v);
@@ -173,7 +374,7 @@ static void chkefx2(replayer_t *r, int v)
     default:
         break;
     }
-    write_voice(r, v, PAULA_PER, c->n_period);
+    write_voice(r, v, PAULA_PER, (uint16_t)c->n_period);
     if (cmd == 0x7)
         tremolo(r, v);
     else if (cmd == 0xA)
@@ -212,7 +413,7 @@ static void set_period(replayer_t *r, int v)
             write_voice(r, v, PAULA_LEN, 1);
             c->n_replen = 1;
         }
-        write_voice(r, v, PAULA_PER, c->n_period);
+        write_voice(r, v, PAULA_PER, (uint16_t)c->n_period);
         r->dmacon_temp |= c->n_dmabit;
     }
     check_more_effects(r, v);
@@ -222,7 +423,7 @@ static void play_voice(replayer_t *r, int v, const uint8_t *cell)
 {
     replayer_channel_t *c = &r->ch[v];
     if (c->n_note == 0 && c->n_cmd == 0)
-        write_voice(r, v, PAULA_PER, c->n_period);
+        write_voice(r, v, PAULA_PER, (uint16_t)c->n_period);
 
     c->n_note = (uint16_t)(((cell[0] & 0x0F) << 8) | cell[1]);
     c->n_cmd = (uint16_t)(((cell[2] & 0x0F) << 8) | cell[3]);
@@ -247,10 +448,17 @@ static void play_voice(replayer_t *r, int v, const uint8_t *cell)
             c->n_loopstart = c->n_wavestart = r->null_addr;
     }
 
-    if ((c->n_note & 0xFFF) > 0)
-        set_period(r, v);
-    else
+    if ((c->n_note & 0xFFF) == 0) {
         check_more_effects(r, v);
+        return;
+    }
+    unsigned cmd = (c->n_cmd >> 8) & 0xF;
+    if (cmd == 3 || cmd == 5) { /* tone portamento: slide to the note, don't trigger it */
+        set_tone_porta(c);
+        check_more_effects(r, v);
+    } else {
+        set_period(r, v);
+    }
 }
 
 static void set_dma(replayer_t *r)
@@ -284,6 +492,7 @@ void replayer_start(replayer_t *r, const mod_song_t *song, uint8_t *mem, uint32_
     r->speed = 6;
     r->tick = r->speed - 1; /* so the first tick reads row 0 */
     r->bpm = 125;
+    r->low_mask = 0xFF;
     for (int v = 0; v < MOD_CHANNELS; v++) {
         r->ch[v].n_dmabit = (uint8_t)(1u << v);
         r->ch[v].n_start = r->ch[v].n_loopstart = r->ch[v].n_wavestart = REPLAYER_NO_SAMPLE;
