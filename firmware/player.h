@@ -22,5 +22,8 @@ void player_play(void);                /* from the start */
 void player_stop(void);                /* and silence */
 int player_pause_toggle(void);         /* returns 1 if now paused */
 void player_poll(void);                /* call often */
+int player_playing(void);
+/* Bring-up check: does Paula's tick timer fire? Returns 1 if so. */
+int player_self_test(void);
 
 #endif

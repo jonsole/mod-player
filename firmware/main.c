@@ -153,11 +153,15 @@ int main(void)
         for (;;)
             LEDS = (cycles() >> 24) & 1 ? 0xAA : 0x55;   /* blink code: SDRAM fault */
     }
-    serial_puts("sdram ok\r\nready\r\n");
+    serial_puts("sdram ok\r\n");
     player_init();
+    serial_puts(player_self_test() ? "paula ok\r\n" : "paula FAIL: no tick\r\n");
+    serial_puts("ready\r\n");
     for (;;) {
         if (serial_avail())
             command(serial_getc_timeout(0));
         player_poll();
+        if (!player_playing())          /* heartbeat on LED 0 while idle */
+            LEDS = (cycles() >> 24) & 1;   /* about 3 blinks a second at 50 MHz */
     }
 }

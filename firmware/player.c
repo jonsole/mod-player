@@ -2,6 +2,7 @@
 #include "hw.h"
 #include "paula_port.h"
 #include "replayer.h"
+#include "serial.h"
 
 #define PAULA(reg) REG32(PAULA_BASE + (reg))
 
@@ -77,6 +78,28 @@ void player_stop(void)
     playing = 0;
     paused = 0;
     LEDS = 0x01;
+}
+
+int player_playing(void)
+{
+    return playing;
+}
+
+int player_self_test(void)
+{
+    /* Stopped, Paula still ticks every PLAYER_SILENT_TICK colour clocks
+     * (20 ms): wait for two tick flags, allowing 100 ms. */
+    PAULA(PAULA_STATUS) = PAULA_STATUS_TICK;
+    uint32_t start = cycles();
+    for (int seen = 0; seen < 2;) {
+        if (PAULA(PAULA_STATUS) & PAULA_STATUS_TICK) {
+            PAULA(PAULA_STATUS) = PAULA_STATUS_TICK;
+            seen++;
+        }
+        if (cycles() - start > CPU_HZ / 10)
+            return 0;
+    }
+    return 1;
 }
 
 int player_pause_toggle(void)

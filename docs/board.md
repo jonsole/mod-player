@@ -32,7 +32,7 @@ make flash    # write to the SPI flash, so it loads at power-on
 
 ## Use
 
-1. After programming, LED 0 lights. The firmware tests the SDRAM, then prints over serial: `mod-player 0.1`, `sdram ok`, `ready`.
+1. After programming, LED 0 lights, then blinks about three times a second (the heartbeat: the soft CPU is running). The firmware tests the SDRAM and checks that Paula's tick timer fires, printing over serial: `mod-player 0.1`, `sdram ok`, `paula ok`, `ready`.
 2. The serial port is the FT2232H's **second** interface (`/dev/ttyUSB1` on Linux, the higher-numbered COM port on Windows), at **1 000 000 baud**.
 3. Plug headphones or an amplifier into the jack. **Start with the volume low:** the jack is driven straight from the FPGA pins through an RC filter, at up to about 3 V peak to peak.
 4. Load and play a Song:
@@ -46,7 +46,7 @@ make flash    # write to the SPI flash, so it loads at power-on
 
 **DIP switches** (read when a Song starts): SW1 stereo blend, SW2 Amiga 500 filter, SW3 play once (stop at the end instead of looping), SW4 reserved (developer mode).
 
-**LEDs:** while playing, two per voice as a rough level meter (voice 1 = LEDs 0–1). LEDs alternating 10101010 / 01010101 means the SDRAM test failed.
+**LEDs:** LED 0 blinking: idle and alive. While playing, two per voice as a rough level meter (voice 1 = LEDs 0–1). LEDs alternating 10101010 / 01010101: the SDRAM test failed. No LEDs at all: the FPGA isn't configured or the clock isn't running.
 
 ## If it doesn't work
 
