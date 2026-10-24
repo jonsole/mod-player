@@ -1,0 +1,23 @@
+# Amiga MOD player for the Scarab miniSpartan6+
+
+A standalone player for Amiga ProTracker MOD files on the Scarab miniSpartan6+ (XC6SLX25) FPGA board. A RISC-V soft CPU runs a ProTracker 2.3-accurate Replayer and drives a hardware recreation of the Amiga's Paula audio chip.
+
+- Design: [spec issue](https://github.com/jonsole/mod-player/issues/1), `GLOSSARY.md`, decisions in `docs/adr/`.
+- Status: phase 1 (PC reference) in progress.
+
+## Layout
+
+- `firmware/replayer/`: the Replayer and MOD loader. Plain C with no C library, built for both the soft CPU and the PC.
+- `host/`: PC-only code: the Paula C model, WAV writer and `render` command.
+- `tools/modgen.py`: builds MOD files for tests; run it to write the generated test Songs.
+- `tests/`: unit tests (C) and render-command tests (Python).
+
+## PC reference
+
+Needs a C compiler, `make` and Python 3.
+
+```sh
+make test                                   # build and run every test
+build/render song.mod song.wav --seconds 60 # render any 4-channel MOD file
+python3 tools/modgen.py build/songs         # write the generated test Songs
+```
