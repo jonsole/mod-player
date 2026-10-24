@@ -86,6 +86,36 @@ class RenderCommand(unittest.TestCase):
         _, left, _ = read_wav(wav)
         self.assertAlmostEqual(len(left), 13 * 70940 * 48000 / PAL_CCK_HZ, delta=1)
 
+    def high_tone_song(self, led_filter=False):
+        """Channel 1 (left) plays an 8-step sine at period 113: 3923 Hz."""
+        song = modgen.Song()
+        song.sample(1, modgen.sine_cycle(8), volume=64, loop=(0, 8))
+        song.note(0, 0, 0, period=113, sample=1, effect=0xE, param=0 if led_filter else 1)
+        return song.build()
+
+    def peak(self, *args, song=None):
+        result, wav = render(song or self.high_tone_song(), "--seconds", "1", *args)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        _, left, right = read_wav(wav)
+        return max(map(abs, left[4800:])), max(map(abs, right[4800:]))
+
+    def test_blend_puts_some_of_the_left_channel_on_the_right(self):
+        self.assertEqual(self.peak()[1], 0)
+        left, right = self.peak("--blend")
+        self.assertAlmostEqual(right / left, 1 / 3, delta=0.02)
+
+    def test_the_a500_filter_softens_high_notes(self):
+        plain, _ = self.peak()
+        filtered, _ = self.peak("--a500")
+        self.assertLess(filtered, plain * 0.85)
+
+    def test_the_songs_led_filter_command_works_unless_no_led(self):
+        plain, _ = self.peak()
+        with_led, _ = self.peak(song=self.high_tone_song(led_filter=True))
+        ignored, _ = self.peak("--no-led", song=self.high_tone_song(led_filter=True))
+        self.assertLess(with_led, plain * 0.75)
+        self.assertEqual(ignored, plain)
+
     def test_rejects_mod_files_with_more_than_four_channels(self):
         result, _ = render(modgen.Song(tag=b"8CHN").build())
         self.assertNotEqual(result.returncode, 0)

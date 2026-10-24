@@ -19,6 +19,7 @@ Needs a C compiler, `make` and Python 3.
 ```sh
 make test                                   # build and run every test
 build/render song.mod song.wav --play-once  # render a whole Song (or --seconds N)
+build/render song.mod song.wav --a500 --blend  # A500 filter, stereo blend (--no-led too)
 python3 tools/modgen.py build/songs         # write the generated test Songs
 
 # Compare our Replayer with pt2-clone's, Paula write by Paula write:

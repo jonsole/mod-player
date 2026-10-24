@@ -29,7 +29,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 	$(CC) -std=gnu99 -O2 -Itests/oracle/stubs -Ifirmware/replayer -Ihost -o $@ $(ORACLE_SRC) -lm
 
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
-	$(CC) $(CFLAGS) $(INC) -o $@ $^
+	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
 test: $(UNIT_TESTS) all
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done

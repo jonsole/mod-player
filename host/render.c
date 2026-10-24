@@ -1,10 +1,11 @@
 /* render: plays a MOD file through the Replayer and the Paula C model and
  * writes the result as a 48 kHz stereo WAV file.
  *
- *   render in.mod out.wav [--seconds N] [--play-once]
+ *   render in.mod out.wav [--seconds N] [--play-once] [--blend] [--a500] [--no-led]
  *
  * Renders 30 seconds by default. --play-once stops at the end of the Song
- * (or at F00), whichever comes first with --seconds.
+ * (or at F00), whichever comes first with --seconds. --blend, --a500 and
+ * --no-led set Paula's output options (see paula_port.h).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,7 +20,8 @@
 
 static int usage(void)
 {
-    fprintf(stderr, "usage: render in.mod out.wav [--seconds N] [--play-once]\n");
+    fprintf(stderr, "usage: render in.mod out.wav [--seconds N] [--play-once] [--blend] "
+                    "[--a500] [--no-led]\n");
     return 2;
 }
 
@@ -62,11 +64,18 @@ int main(int argc, char **argv)
         return usage();
     double seconds = -1;
     int play_once = 0;
+    uint32_t options = 0;
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--seconds") == 0 && i + 1 < argc)
             seconds = atof(argv[++i]);
         else if (strcmp(argv[i], "--play-once") == 0)
             play_once = 1;
+        else if (strcmp(argv[i], "--blend") == 0)
+            options |= PAULA_OPT_BLEND;
+        else if (strcmp(argv[i], "--a500") == 0)
+            options |= PAULA_OPT_A500;
+        else if (strcmp(argv[i], "--no-led") == 0)
+            options |= PAULA_OPT_NO_LED;
         else
             return usage();
     }
@@ -89,6 +98,7 @@ int main(int argc, char **argv)
     static paula_model_t paula;
     static replayer_t rp;
     paula_model_reset(&paula, mem, null_addr + NULL_SAMPLE_BYTES);
+    paula_model_write(&paula, PAULA_OPTIONS, options);
     replayer_start(&rp, &song, mem, 0, null_addr, paula_model_port(&paula));
 
     wav_writer_t wav;

@@ -48,6 +48,14 @@ static void start_voice(paula_model_t *p, paula_voice_t *v)
 
 void paula_model_write(paula_model_t *p, uint32_t reg, uint32_t value)
 {
+    if (reg == PAULA_OPTIONS) {
+        p->options = value;
+        return;
+    }
+    if (reg == PAULA_LED_FILTER) {
+        p->led = value & 1;
+        return;
+    }
     if (reg == PAULA_DMACON) {
         for (int i = 0; i < PAULA_VOICES; i++) {
             if (!(value & (1u << i)))
@@ -80,6 +88,31 @@ void paula_model_write(paula_model_t *p, uint32_t reg, uint32_t value)
     }
 }
 
+#define A500_K 511        /* 65536 * (1 - exp(-2 pi 4421 / 3546895)) */
+#define LED_F 359         /* 65536 * 2 sin(pi 3090.53 / 3546895) */
+#define LED_DAMP 99297    /* 65536 / 0.660 */
+
+static int32_t mul16(int32_t a, int32_t k)
+{
+    return (int32_t)(((int64_t)a * k) >> 16);
+}
+
+static int32_t output_stage(paula_model_t *p, paula_filter_t *f, int32_t x)
+{
+    int32_t y = x * 32768; /* Q15 */
+    if (p->options & PAULA_OPT_A500) {
+        f->a500 += mul16(y - f->a500, A500_K);
+        y = f->a500;
+    }
+    if (p->led && !(p->options & PAULA_OPT_NO_LED)) {
+        f->low += mul16(f->band, LED_F);
+        int32_t high = y - f->low - mul16(f->band, LED_DAMP);
+        f->band += mul16(high, LED_F);
+        y = f->low;
+    }
+    return y >> 15;
+}
+
 paula_frame_t paula_model_step(paula_model_t *p)
 {
     int32_t out[PAULA_VOICES];
@@ -91,7 +124,13 @@ paula_frame_t paula_model_step(paula_model_t *p)
             next_sample(p, v);
         }
     }
-    paula_frame_t f = {out[0] + out[3], out[1] + out[2]};
+    int32_t left = out[0] + out[3], right = out[1] + out[2];
+    if (p->options & PAULA_OPT_BLEND) {
+        int32_t l = left;
+        left = (3 * l + right) >> 2;
+        right = (l + 3 * right) >> 2;
+    }
+    paula_frame_t f = {output_stage(p, &p->filter[0], left), output_stage(p, &p->filter[1], right)};
     return f;
 }
 

@@ -20,6 +20,11 @@
  *
  * PAULA_LED_FILTER: 1 turns the Amiga "LED" low-pass filter on, 0 off
  * (effect E0x; on the Amiga this lived in a CIA register).
+ *
+ * PAULA_OPTIONS: output options set by the player, not the Song:
+ *   PAULA_OPT_BLEND   mix a quarter of each side into the other (board SW1)
+ *   PAULA_OPT_A500    the Amiga 500's fixed 4421 Hz low-pass filter (SW2)
+ *   PAULA_OPT_NO_LED  ignore PAULA_LED_FILTER
  */
 #ifndef PAULA_PORT_H
 #define PAULA_PORT_H
@@ -36,6 +41,10 @@
 #define PAULA_DMACON 0x40u
 #define PAULA_DMACON_SET 0x8000u
 #define PAULA_LED_FILTER 0x44u
+#define PAULA_OPTIONS 0x48u
+#define PAULA_OPT_BLEND 0x1u
+#define PAULA_OPT_A500 0x2u
+#define PAULA_OPT_NO_LED 0x4u
 
 /* The PAL Amiga colour clock: Paula's time unit. */
 #define PAULA_CCK_HZ 3546895u
