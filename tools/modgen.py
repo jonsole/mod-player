@@ -95,8 +95,67 @@ def plain_notes_song():
     return song.build()
 
 
+def effect_song(name, cells, positions=(0,)):
+    """A Song for testing effects: two looping Samples (1: sine, 2: square)
+    and one plucked Sample (3), with the given cells:
+    (pattern, row, channel, period, sample, effect, param)."""
+    song = Song(name)
+    song.sample(1, sine_cycle(32) * 4, volume=48, loop=(0, 128), name="sine")
+    song.sample(2, square_cycle(16) * 8, volume=64, loop=(64, 64), name="square")
+    song.sample(3, [round(100 * math.sin(i / 3)) * (600 - i) // 600 for i in range(600)],
+                volume=56, finetune=0, name="pluck")
+    for cell in cells:
+        song.note(*cell)
+    song.positions = list(positions)
+    return song.build()
+
+
+def _rows(pattern, channel, start, step, effects, period=0, sample=0):
+    """One cell every `step` rows from `start`, cycling through (effect, param)."""
+    return [(pattern, start + i * step, channel, period, sample, e, p)
+            for i, (e, p) in enumerate(effects)]
+
+
+def volume_set_song():
+    cells = [(0, 0, 0, C2, 1, 0, 0), (0, 0, 1, E2, 2, 0, 0), (0, 0, 2, G2, 3, 0xC, 20)]
+    cells += _rows(0, 0, 4, 4, [(0xC, v) for v in (0, 10, 32, 64, 65, 0x7F, 0x80, 0xFF, 40)])
+    cells += _rows(0, 1, 2, 6, [(0xC, v) for v in (64, 3, 0x40, 0x41, 0)])
+    cells += [(0, 40, 2, C2, 3, 0xC, 50), (0, 48, 2, C2, 3, 0, 0)]  # Sample volume returns
+    return effect_song("volume set", cells)
+
+
+def volume_slide_song():
+    cells = [(0, 0, 0, C2, 1, 0xC, 10), (0, 0, 1, E2, 2, 0xC, 60), (0, 0, 3, G2, 1, 0, 0)]
+    cells += _rows(0, 0, 1, 1, [(0xA, 0x40)] * 12 + [(0xA, 0x0F)] * 8)   # up past 64, down past 0
+    cells += _rows(0, 1, 1, 1, [(0xA, 0x03)] * 25 + [(0xA, 0x21)] * 6)   # both nibbles: up wins
+    cells += _rows(0, 3, 4, 2, [(0xA, 0x00), (0xA, 0x10), (0xA, 0x01), (0xA, 0xF0)])
+    return effect_song("volume slide", cells)
+
+
+def tremolo_song():
+    cells = [(0, 0, 0, C2, 1, 7, 0x44), (0, 0, 1, E2, 2, 0, 0), (0, 0, 2, G2, 1, 0, 0)]
+    cells += _rows(0, 0, 1, 1, [(7, 0x00)] * 6 + [(7, 0x80)] * 4 + [(7, 0x0F)] * 4)  # memory
+    cells += _rows(0, 1, 1, 1, [(0xE, 0x71)] + [(7, 0x68)] * 10)   # ramp waveform
+    cells += _rows(0, 1, 12, 1, [(0xE, 0x72)] + [(7, 0x3C)] * 8)   # square
+    cells += _rows(0, 1, 21, 1, [(0xE, 0x73)] + [(7, 0x5A)] * 8)   # random = square in PT
+    cells += _rows(0, 1, 30, 1, [(0xE, 0x74)] + [(7, 0x8F)] * 4)   # no retrigger reset
+    cells += [(0, 35, 1, E2, 2, 7, 0x00), (0, 36, 1, E2, 2, 0xE, 0x70), (0, 37, 1, E2, 2, 7, 0)]
+    return effect_song("tremolo", cells)
+
+
+def volume_fine_song():
+    cells = [(0, 0, 0, C2, 1, 0xC, 30), (0, 0, 1, E2, 2, 0xC, 2)]
+    cells += _rows(0, 0, 1, 1, [(0xE, 0xA4)] * 10 + [(0xE, 0xBF)] * 6)
+    cells += _rows(0, 1, 1, 2, [(0xE, 0xB1), (0xE, 0xB5), (0xE, 0xA0), (0xE, 0xAF)] * 3)
+    return effect_song("volume fine", cells)
+
+
 GENERATED = {
     "plain-notes.mod": plain_notes_song,
+    "volume-set.mod": volume_set_song,
+    "volume-slide.mod": volume_slide_song,
+    "tremolo.mod": tremolo_song,
+    "volume-fine.mod": volume_fine_song,
 }
 
 

@@ -1,4 +1,5 @@
-/* ProTracker's period table: 16 finetune sections of 36 notes, each ended by
+/* ProTracker's vibrato (sine) table, used by vibrato and tremolo.
+ * ProTracker's period table: 16 finetune sections of 36 notes, each ended by
  * a 0, plus the 15 values that follow the table in ProTracker's own code,
  * which the arpeggio effect can read past the end. Values from pt2-clone by
  * Olav Sorensen (BSD-3-Clause), which matches ProTracker 2.3D. */
@@ -94,4 +95,11 @@ const int16_t replayer_periods[REPLAYER_PERIOD_ENTRIES] = {
 	*/
 	774,1800,2314,3087,4113,4627,5400,6426,6940,7713,
 	8739,9253,24625,12851,13365
+};
+
+const uint8_t replayer_vibrato_table[32] = {
+	0x00, 0x18, 0x31, 0x4A, 0x61, 0x78, 0x8D, 0xA1,
+	0xB4, 0xC5, 0xD4, 0xE0, 0xEB, 0xF4, 0xFA, 0xFD,
+	0xFF, 0xFD, 0xFA, 0xF4, 0xEB, 0xE0, 0xD4, 0xC5,
+	0xB4, 0xA1, 0x8D, 0x78, 0x61, 0x4A, 0x31, 0x18
 };

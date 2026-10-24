@@ -26,6 +26,8 @@ typedef struct {
     uint8_t n_wavecontrol;
     uint8_t n_vibratopos;
     uint8_t n_tremolopos;
+    uint8_t n_vibratocmd;
+    uint8_t n_tremolocmd;
 } replayer_channel_t;
 
 typedef struct {

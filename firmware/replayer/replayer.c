@@ -29,7 +29,76 @@ static const uint8_t *current_row(const replayer_t *r)
            (uint32_t)r->row * (MOD_CHANNELS * 4);
 }
 
-static void set_speed(replayer_t *r, replayer_channel_t *c)
+static uint8_t clamp_volume(int v)
+{
+    return (uint8_t)(v < 0 ? 0 : v > 64 ? 64 : v);
+}
+
+/* ---- volume effects ------------------------------------------------------ */
+
+static void volume_change(replayer_t *r, replayer_channel_t *c) /* Cxx */
+{
+    (void)r;
+    uint8_t v = c->n_cmd & 0xFF;
+    c->n_volume = v > 64 ? 64 : v;
+}
+
+static void volume_slide(replayer_channel_t *c) /* Axy */
+{
+    uint8_t param = c->n_cmd & 0xFF;
+    if ((param & 0xF0) == 0)
+        c->n_volume = clamp_volume(c->n_volume - (param & 0x0F));
+    else
+        c->n_volume = clamp_volume(c->n_volume + (param >> 4));
+}
+
+static void volume_fine_up(replayer_t *r, replayer_channel_t *c) /* EAx */
+{
+    if (r->tick == 0)
+        c->n_volume = clamp_volume(c->n_volume + (c->n_cmd & 0xF));
+}
+
+static void volume_fine_down(replayer_t *r, replayer_channel_t *c) /* EBx */
+{
+    if (r->tick == 0)
+        c->n_volume = clamp_volume(c->n_volume - (c->n_cmd & 0xF));
+}
+
+static void set_tremolo_control(replayer_channel_t *c) /* E7x */
+{
+    c->n_wavecontrol = (uint8_t)(((c->n_cmd & 0xF) << 4) | (c->n_wavecontrol & 0xF));
+}
+
+static void tremolo(replayer_t *r, int v) /* 7xy */
+{
+    replayer_channel_t *c = &r->ch[v];
+    if (c->n_cmd & 0x0F)
+        c->n_tremolocmd = (uint8_t)((c->n_tremolocmd & 0xF0) | (c->n_cmd & 0x0F));
+    if (c->n_cmd & 0xF0)
+        c->n_tremolocmd = (uint8_t)((c->n_cmd & 0xF0) | (c->n_tremolocmd & 0x0F));
+
+    unsigned pos = (c->n_tremolopos >> 2) & 0x1F;
+    unsigned depth;
+    switch ((c->n_wavecontrol >> 4) & 3) {
+    case 0: /* sine */
+        depth = replayer_vibrato_table[pos];
+        break;
+    case 1: /* ramp: ProTracker tests the vibrato position here (a bug we keep) */
+        depth = c->n_vibratopos < 128 ? pos << 3 : 255 - (pos << 3);
+        break;
+    default: /* square */
+        depth = 255;
+        break;
+    }
+    depth = (depth * (c->n_tremolocmd & 0xF)) >> 6;
+    int vol = c->n_tremolopos < 128 ? c->n_volume + (int)depth : c->n_volume - (int)depth;
+    write_voice(r, v, PAULA_VOL, clamp_volume(vol));
+    c->n_tremolopos = (uint8_t)(c->n_tremolopos + ((c->n_tremolocmd >> 2) & 0x3C));
+}
+
+/* ---- song flow ----------------------------------------------------------- */
+
+static void set_speed(replayer_t *r, replayer_channel_t *c) /* Fxx */
 {
     uint8_t param = c->n_cmd & 0xFF;
     if (param > 0 && param < 32) {
@@ -38,27 +107,86 @@ static void set_speed(replayer_t *r, replayer_channel_t *c)
     }
 }
 
+/* ---- dispatch, in ProTracker's order ------------------------------------- */
+
+static void e_commands(replayer_t *r, int v)
+{
+    replayer_channel_t *c = &r->ch[v];
+    switch ((c->n_cmd >> 4) & 0xF) {
+    case 0x7:
+        set_tremolo_control(c);
+        return;
+    case 0xA:
+        volume_fine_up(r, c);
+        return;
+    case 0xB:
+        volume_fine_down(r, c);
+        return;
+    default:
+        return;
+    }
+}
+
 /* Effects handled on the tick a row is read. */
 static void check_more_effects(replayer_t *r, int v)
 {
     replayer_channel_t *c = &r->ch[v];
     switch ((c->n_cmd >> 8) & 0xF) {
+    case 0x9:
+    case 0xB:
+    case 0xD:
+        return;
+    case 0xE:
+        e_commands(r, v);
+        return;
     case 0xF:
         set_speed(r, c);
+        return;
+    case 0xC:
+        volume_change(r, c);
+        return;
+    default:
+        write_voice(r, v, PAULA_PER, c->n_period);
+        return;
+    }
+}
+
+/* Effects handled on the other ticks of a row. */
+static void chkefx2(replayer_t *r, int v)
+{
+    replayer_channel_t *c = &r->ch[v];
+    if ((c->n_cmd & 0xFFF) == 0)
+        return;
+    unsigned cmd = (c->n_cmd >> 8) & 0xF;
+    switch (cmd) {
+    case 0x0:
+    case 0x1:
+    case 0x2:
+    case 0x3:
+    case 0x4:
+    case 0x5:
+    case 0x6:
+        return;
+    case 0xE:
+        e_commands(r, v);
         return;
     default:
         break;
     }
     write_voice(r, v, PAULA_PER, c->n_period);
+    if (cmd == 0x7)
+        tremolo(r, v);
+    else if (cmd == 0xA)
+        volume_slide(c);
 }
 
-/* Effects handled on the other ticks of a row. */
 static void check_effects(replayer_t *r, int v)
 {
     replayer_channel_t *c = &r->ch[v];
-    if ((c->n_cmd & 0xFFF) != 0)
-        write_voice(r, v, PAULA_PER, c->n_period);
-    write_voice(r, v, PAULA_VOL, c->n_volume);
+    chkefx2(r, v);
+    /* tremolo writes its own volume */
+    if (((c->n_cmd >> 8) & 0xF) != 0x7)
+        write_voice(r, v, PAULA_VOL, c->n_volume);
 }
 
 static void set_period(replayer_t *r, int v)

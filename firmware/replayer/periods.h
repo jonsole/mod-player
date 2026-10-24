@@ -6,5 +6,6 @@
 #define REPLAYER_PERIOD_ENTRIES (37 * 16 + 15)
 
 extern const int16_t replayer_periods[REPLAYER_PERIOD_ENTRIES];
+extern const uint8_t replayer_vibrato_table[32];
 
 #endif
