@@ -153,8 +153,9 @@ module paula #(
     wire signed [15:0] y1_l_out = y1_l[30:15], y1_r_out = y1_r[30:15];   // >> 15
     wire signed [15:0] low_l_out = low_l[30:15], low_r_out = low_r[30:15];
 
-    // what to do after finishing a colour clock (tick_left already counted down)
-    wire [31:0] tick_left_after = tick_left - 1'b1;
+    // what to do after finishing a colour clock: count the tick down (a
+    // restart may have just set it to 0: then the boundary comes next)
+    wire [31:0] tick_left_after = tick_left == 0 ? 32'd0 : tick_left - 1'b1;
     wire        boundary_next   = tick_left_after == 0;
 
     // the voice S_STEP works on, and its fetch address
@@ -370,7 +371,7 @@ module paula #(
                     out_r <= y1_r_out;
                     out_valid <= 1'b1;
                     tick_left <= tick_left_after;
-                    state <= (!boundary_next && cck_ready) ? S_MIX : S_IDLE;
+                    state <= (running && !boundary_next && cck_ready) ? S_MIX : S_IDLE;
                 end
             end
             S_LED2: begin                       // high = y - low - band * damping

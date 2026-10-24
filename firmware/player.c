@@ -72,7 +72,7 @@ void player_stop(void)
     PAULA(PAULA_DMACON) = 0xF;
     for (int v = 0; v < PAULA_VOICES; v++)
         PAULA(PAULA_VOICE(v) + PAULA_VOL) = 0;
-    PAULA(PAULA_TICK_LEN) = 70940;
+    PAULA(PAULA_TICK_LEN) = PLAYER_SILENT_TICK;
     PAULA(PAULA_CONTROL) = PAULA_CONTROL_RUN;
     playing = 0;
     paused = 0;
@@ -99,14 +99,26 @@ static void show_levels(void)
     LEDS = leds;
 }
 
+/* Silence at the next tick boundary, like any other tick's writes (ADR-0009). */
+static void queue_silence(void)
+{
+    PAULA(PAULA_DMACON) = 0xF;
+    for (int v = 0; v < PAULA_VOICES; v++)
+        PAULA(PAULA_VOICE(v) + PAULA_VOL) = 0;
+    PAULA(PAULA_TICK_LEN) = PLAYER_SILENT_TICK;
+}
+
 void player_poll(void)
 {
     if (!playing || paused || !(PAULA(PAULA_STATUS) & PAULA_STATUS_TICK))
         return;
     PAULA(PAULA_STATUS) = PAULA_STATUS_TICK;
-    /* The tick that set these has now been played. */
+    /* The tick just applied stopped the Song (F00), or was its last in
+     * play-once mode: let it play, then fall silent. */
     if (rp.stopped || (rp.ended && (SWITCHES & SW_PLAY_ONCE))) {
-        player_stop();
+        queue_silence();
+        playing = 0;
+        LEDS = 0x01;
         return;
     }
     PAULA(PAULA_TICK_LEN) = replayer_tick(&rp);

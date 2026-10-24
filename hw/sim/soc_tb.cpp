@@ -8,6 +8,10 @@
 //     --preload FILE    then put FILE's bytes at the start of SDRAM (a
 //                       back door, so long Songs need not crawl over serial)
 //     --switches N      DIP switch setting (bit 0 = SW1)
+//     --compare FILE S  when the firmware starts a Song (it writes Paula's
+//                       options), compare Paula's audio with the PC reference
+//                       (Replayer + Paula C model) for FILE, for S seconds;
+//                       passes when they match (no expected text needed)
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -17,6 +21,9 @@
 #include "Vsoc.h"
 #include "verilated.h"
 #include "sdram_model.h"
+#include "mod.h"
+#include "paula_model.h"
+#include "replayer.h"
 
 static const int CLK_HZ = 50000000, BAUD = 1000000, BIT = CLK_HZ / BAUD;
 
@@ -35,6 +42,52 @@ static std::vector<uint8_t> read_file(const char *path)
     return d;
 }
 
+// The PC reference for --compare: what `render` would produce.
+struct Reference {
+    std::vector<uint8_t> mem;
+    mod_song_t song;
+    paula_model_t paula;
+    replayer_t rp;
+    std::deque<paula_frame_t> frames;
+    bool started = false, silent = false, play_once = false;
+
+    void start(const std::vector<uint8_t> &file, uint32_t options)
+    {
+        uint32_t silence = ((uint32_t)file.size() + 3) & ~3u;
+        mem.assign(silence + 131072 + 4, 0);
+        std::copy(file.begin(), file.end(), mem.begin());
+        if (mod_load(&song, mem.data(), (uint32_t)file.size()) != MOD_OK) {
+            printf("reference: not a MOD file\n");
+            exit(2);
+        }
+        paula_model_reset(&paula, mem.data(), (uint32_t)mem.size());
+        paula_model_write(&paula, PAULA_OPTIONS, options);
+        replayer_start(&rp, &song, mem.data(), 0, silence, paula_model_port(&paula));
+        frames.clear();
+        started = true;
+        silent = false;
+    }
+    paula_frame_t next()
+    {
+        while (frames.empty()) {
+            uint32_t cck = 70940;              // the firmware's silent tick
+            if ((rp.stopped || (play_once && rp.ended)) && !silent) {  // voices off at the next tick
+                paula_model_write(&paula, PAULA_DMACON, 0xF);
+                for (int v = 0; v < PAULA_VOICES; v++)
+                    paula_model_write(&paula, PAULA_VOICE(v) + PAULA_VOL, 0);
+                silent = true;
+            } else if (!silent) {
+                cck = replayer_tick(&rp);
+            }
+            for (uint32_t i = 0; i < cck; i++)
+                frames.push_back(paula_model_step(&paula));
+        }
+        paula_frame_t f = frames.front();
+        frames.pop_front();
+        return f;
+    }
+};
+
 int main(int argc, char **argv)
 {
     Verilated::commandArgs(argc, argv);
@@ -42,15 +95,24 @@ int main(int argc, char **argv)
     const char *after = nullptr, *expect = nullptr;
     std::vector<uint8_t> to_send, preload;
     int switches = 0;
+    std::vector<uint8_t> compare_song;
+    long long compare_frames = 0, compared = 0;
+    static Reference ref;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--max") && i + 1 < argc) max_cycles = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--after") && i + 1 < argc) after = argv[++i];
         else if (!strcmp(argv[i], "--send") && i + 1 < argc) to_send = read_file(argv[++i]);
         else if (!strcmp(argv[i], "--preload") && i + 1 < argc) preload = read_file(argv[++i]);
         else if (!strcmp(argv[i], "--switches") && i + 1 < argc) switches = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--compare") && i + 2 < argc) {
+            compare_song = read_file(argv[++i]);
+            compare_frames = (long long)(atof(argv[++i]) * PAULA_CCK_HZ);
+        }
         else if (argv[i][0] != '-' || !argv[i][1]) expect = argv[i];
         else { printf("unknown option %s\n", argv[i]); return 2; }
     }
+    if (!expect && compare_frames)
+        expect = "\x01never";
     if (!expect) {
         printf("usage: soc_tb [--max N] [--after TEXT] [--send FILE] [--preload FILE] "
                "[--switches N] \"expected text\"\n");
@@ -109,6 +171,28 @@ int main(int argc, char **argv)
         if (sdram.failures) {
             printf("serial: %s\nFAIL: SDRAM rules broken\n", text.c_str());
             return 1;
+        }
+
+        // --compare: a Song starts when the firmware sets Paula's options
+        if (compare_frames && dut->dbg_paula_we && dut->dbg_paula_addr == PAULA_OPTIONS) {
+            ref.play_once = switches & 4;      // SW3
+            ref.start(compare_song, dut->dbg_paula_wdata);
+            compared = 0;
+        }
+        if (ref.started && dut->audio_valid) {
+            paula_frame_t e = ref.next();
+            int16_t l = (int16_t)dut->audio_l, r = (int16_t)dut->audio_r;
+            if (l != e.left || r != e.right) {
+                printf("serial: %s\nFAIL: frame %lld: chip (%d, %d), reference (%d, %d)\n",
+                       text.c_str(), compared, l, r, e.left, e.right);
+                return 1;
+            }
+            if (++compared == compare_frames) {
+                sdram.finish();
+                printf("%s: %lld frames match the PC reference (%.1f s of audio), %lld cycles\n",
+                       sdram.failures ? "FAIL" : "ok", compared, compared / (double)PAULA_CCK_HZ, cycle);
+                return sdram.failures ? 1 : 0;
+            }
         }
 
         // serial output: sample each bit in its middle

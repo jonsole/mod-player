@@ -11,7 +11,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test soc-test dsm-test firmware clean
+.PHONY: all test hw-test soc-test dsm-test fullchip-test firmware clean
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
 $(BUILD):
@@ -31,7 +31,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test soc-test dsm-test
+test: $(UNIT_TESTS) all hw-test soc-test dsm-test fullchip-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command and pt2-clone oracle"; python3 -m unittest tests.test_render tests.test_oracle
 
@@ -93,14 +93,24 @@ $(BUILD)/fw/firmware0.hex: $(BUILD)/fw/firmware.elf tools/bin2lanes.py
 firmware: $(BUILD)/fw/firmware0.hex
 
 # ---- SoC simulation ---------------------------------------------------------
-SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/uart_rx.v hw/rtl/sdram_ctrl.v hw/rtl/third_party/picorv32/picorv32.v
+SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/uart_rx.v hw/rtl/sdram_ctrl.v hw/rtl/paula.v hw/rtl/third_party/picorv32/picorv32.v
 
-$(BUILD)/soc_tb: $(SOC_RTL) hw/sim/soc_tb.cpp hw/sim/sdram_model.h $(BUILD)/fw/firmware0.hex | $(BUILD)
-	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module soc \
-		-GFIRMWARE='"$(CURDIR)/$(BUILD)/fw/firmware"' $(SOC_RTL) $(CURDIR)/hw/sim/soc_tb.cpp \
-		-CFLAGS "-I$(CURDIR)/hw/sim" \
-		-Mdir $(BUILD)/obj_soc -o soc_tb >$(BUILD)/soc_tb.log 2>&1 || (cat $(BUILD)/soc_tb.log; false)
+SOC_TB_DEPS := $(SOC_RTL) hw/sim/soc_tb.cpp hw/sim/sdram_model.h $(SIM_C) $(BUILD)/fw/firmware0.hex
+SOC_TB_ARGS = $(VFLAGS) -Wno-lint -Wno-style --top-module soc \
+	-GFIRMWARE='"$(CURDIR)/$(BUILD)/fw/firmware"' $(SOC_RTL) $(CURDIR)/hw/sim/soc_tb.cpp \
+	$(addprefix $(CURDIR)/,$(SIM_C)) \
+	-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer"
+
+$(BUILD)/soc_tb: $(SOC_TB_DEPS) | $(BUILD)
+	$(VERILATOR) $(SOC_TB_ARGS) -Mdir $(BUILD)/obj_soc -o soc_tb \
+		>$(BUILD)/soc_tb.log 2>&1 || (cat $(BUILD)/soc_tb.log; false)
 	cp $(BUILD)/obj_soc/soc_tb $@
+
+# Paula unpaced, for comparing long stretches of audio quickly
+$(BUILD)/soc_tb_fast: $(SOC_TB_DEPS) | $(BUILD)
+	$(VERILATOR) $(SOC_TB_ARGS) -GPAULA_FREE_RUN=1 -Mdir $(BUILD)/obj_soc_fast -o soc_tb \
+		>$(BUILD)/soc_tb_fast.log 2>&1 || (cat $(BUILD)/soc_tb_fast.log; false)
+	cp $(BUILD)/obj_soc_fast/soc_tb $@
 
 soc-test: $(BUILD)/soc_tb
 	$(BUILD)/soc_tb "ready"
@@ -114,3 +124,23 @@ $(BUILD)/dsm_tb: hw/rtl/dac_dsm.v hw/sim/dsm_tb.cpp | $(BUILD)
 
 dsm-test: $(BUILD)/dsm_tb
 	$(BUILD)/dsm_tb
+
+# The whole chip plays each Song (put in SDRAM through the back door, then
+# started with the M command); Paula's audio must equal the PC reference.
+FULLCHIP_SECONDS ?= 5
+fullchip-test: $(BUILD)/soc_tb_fast $(BUILD)/soc_tb
+	@rm -rf $(BUILD)/songs && python3 tools/modgen.py $(BUILD)/songs >/dev/null
+	@i=0; for m in $(BUILD)/songs/*.mod tests/songs/*.mod; do \
+		python3 -c "import sys; sys.path.insert(0, 'tools'); import modplayer, os; \
+			open('$$m.cmd', 'wb').write(modplayer.encode_play_from_memory(os.path.getsize('$$m')))"; \
+		echo "$(BUILD)/soc_tb_fast --after ready --switches $$((i % 4)) --preload $$m --send $$m.cmd \
+			--compare $$m $(FULLCHIP_SECONDS) --max 2000000000"; i=$$((i + 1)); done > $(BUILD)/fullchip_cmds
+	@m=$(BUILD)/songs/volume-set.mod; echo "$(BUILD)/soc_tb_fast --after ready --switches 4 --preload $$m \
+		--send $$m.cmd --compare $$m 9 --max 2000000000" >> $(BUILD)/fullchip_cmds  # play once: ends at 7.7 s
+	@m=$(BUILD)/songs/arpeggio.mod; echo "$(BUILD)/soc_tb --after ready --switches 3 --preload $$m \
+		--send $$m.cmd --compare $$m 1 --max 2000000000" >> $(BUILD)/fullchip_cmds  # real time, at 50 MHz
+	@xargs -P $(JOBS) -I{} sh -c '{} | sed "s|^|$$(echo {} | grep -o "[^ ]*\.mod" | head -1): |"' \
+		< $(BUILD)/fullchip_cmds > $(BUILD)/fullchip_results; status=$$?; \
+		grep -E "frames match|FAIL" $(BUILD)/fullchip_results; \
+		echo "Full chip: $$(grep -c '^.*ok: ' $(BUILD)/fullchip_results) of $$(wc -l < $(BUILD)/fullchip_cmds) runs match the PC reference"; \
+		exit $$status

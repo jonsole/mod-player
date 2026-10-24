@@ -25,6 +25,7 @@ module sdram_ctrl #(
     input      [24:2] addr,      // word address
     input      [31:0] wdata,
     input      [3:0]  wstrb,
+    output            accept,    // req is being taken this clock
     output reg        ack,
     output reg [31:0] rdata,
     // SDRAM pins (registered, so they can live in the I/O blocks)
@@ -66,6 +67,8 @@ module sdram_ctrl #(
     reg  [9:2]  l_col;                          // column part of the latched address
     reg  [31:0] l_wdata;
     reg  [3:0]  l_wstrb;
+
+    assign accept = state == S_IDLE && !refresh_due && req;
 
     task command;
         input [2:0] c;

@@ -7,13 +7,18 @@
 //   0x2000_0000  serial port: +0 data (write: send a byte; read: take a
 //                received byte), +4 status (bit 0: sending, bit 1: byte
 //                waiting, bit 2: receive overrun; write bit 2 to clear)
-//   0x2000_0200  board I/O: +0 LEDs (write), +4 DIP switches (read)
+//   0x2000_0100  Paula (firmware/replayer/paula_port.h)
+//   0x2000_0200  board I/O: +0 LEDs (write), +4 DIP switches (read, 1 = on)
+//
+// The SDRAM is shared: Paula's Sample fetches take priority over the CPU.
+`default_nettype none
 module soc #(
     parameter CLK_HZ      = 50000000,
     parameter BAUD        = 1000000,
     parameter RAM_WORDS   = 8192,           // 32 KB
     parameter RAM_BITS    = 13,
-    parameter FIRMWARE    = "build/fw/firmware"
+    parameter FIRMWARE    = "build/fw/firmware",
+    parameter PAULA_FREE_RUN = 0                 // simulation only: Paula as fast as it can
 ) (
     input        clk,
     input        rst,
@@ -32,7 +37,15 @@ module soc #(
     output [1:0]  sd_dqm,
     output [15:0] sd_dq_o,
     output        sd_dq_oe,
-    input  [15:0] sd_dq_i
+    input  [15:0] sd_dq_i,
+    // audio: one stereo frame per colour clock
+    output        audio_valid,
+    output signed [15:0] audio_l,
+    output signed [15:0] audio_r,
+    // Paula register writes, for testbenches (leave unconnected)
+    output        dbg_paula_we,
+    output [6:0]  dbg_paula_addr,
+    output [31:0] dbg_paula_wdata
 );
     // ---- CPU ----
     wire        mem_valid, mem_instr;
@@ -53,7 +66,9 @@ module soc #(
         .clk(clk), .resetn(!rst),
         .mem_valid(mem_valid), .mem_instr(mem_instr), .mem_ready(mem_ready),
         .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_wstrb(mem_wstrb),
-        .mem_rdata(mem_rdata)
+        .mem_rdata(mem_rdata),
+        // unused: coprocessor interface and interrupts
+        .pcpi_wr(1'b0), .pcpi_rd(32'd0), .pcpi_wait(1'b0), .pcpi_ready(1'b0), .irq(32'd0)
     );
 
     // ---- address decode ----
@@ -62,6 +77,7 @@ module soc #(
     wire sel_io   = mem_addr[31:28] == 4'h2;
     wire sel_uart = sel_io && mem_addr[15:8] == 8'h00;
     wire sel_gpio = sel_io && mem_addr[15:8] == 8'h02;
+    wire sel_paula = sel_io && mem_addr[15:8] == 8'h01;
 
     // ---- firmware RAM ----
     wire [31:0] ram_rdata;
@@ -72,14 +88,49 @@ module soc #(
         .wdata(mem_wdata), .rdata(ram_rdata)
     );
 
-    // ---- SDRAM ----
-    wire        sd_ack;
+    wire        sd_accept, sd_ack;
     wire [31:0] sd_rdata;
+
+    // ---- Paula ----
+    wire        p_req, p_we, p_ack;
+    wire [15:0] p_rdata;
+    wire [24:1] p_addr;
+    wire [15:0] p_wdata;
+    wire [1:0]  p_be;
+    wire [31:0] p_rdata_reg;
+    wire        paula_we = mem_valid && !mem_ready && sel_paula && mem_wstrb != 0;
+    paula #(.CLK_HZ(CLK_HZ), .FREE_RUN(PAULA_FREE_RUN)) paula (
+        .clk(clk), .rst(rst),
+        .reg_we(paula_we), .reg_addr(mem_addr[6:0]), .reg_wdata(mem_wdata),
+        .reg_rdata(p_rdata_reg),
+        .mem_req(p_req), .mem_addr(p_addr), .mem_we(p_we), .mem_wdata(p_wdata), .mem_be(p_be),
+        .mem_ack(p_ack), .mem_rdata(p_rdata),
+        .out_valid(audio_valid), .out_l(audio_l), .out_r(audio_r)
+    );
+    assign dbg_paula_we = paula_we;
+    assign dbg_paula_addr = mem_addr[6:0];
+    assign dbg_paula_wdata = mem_wdata;
+
+    // ---- SDRAM, shared: Paula first ----
+    wire        cpu_req = mem_valid && sel_sdram && !mem_ready;
+    reg         owner_paula, paula_half;   // who the access in flight belongs to
+    wire        pick_paula = p_req;
+    always @(posedge clk)
+        if (sd_accept) begin
+            owner_paula <= pick_paula;
+            paula_half <= p_addr[1];
+        end
+    assign      p_ack = sd_ack && owner_paula;
+    assign      p_rdata = paula_half ? sd_rdata[31:16] : sd_rdata[15:0];
+    wire        cpu_ack = sd_ack && !owner_paula;
     sdram_ctrl sdram (
         .clk(clk), .rst(rst),
-        .req(mem_valid && sel_sdram && !mem_ready), .we(mem_wstrb != 0),
-        .addr(mem_addr[24:2]), .wdata(mem_wdata), .wstrb(mem_wstrb),
-        .ack(sd_ack), .rdata(sd_rdata),
+        .req(pick_paula || cpu_req),
+        .we(pick_paula ? p_we : mem_wstrb != 0),
+        .addr(pick_paula ? p_addr[24:2] : mem_addr[24:2]),
+        .wdata(pick_paula ? {p_wdata, p_wdata} : mem_wdata),
+        .wstrb(pick_paula ? (p_addr[1] ? {p_be, 2'b00} : {2'b00, p_be}) : mem_wstrb),
+        .accept(sd_accept), .ack(sd_ack), .rdata(sd_rdata),
         .sd_cke(sd_cke), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n),
         .sd_we_n(sd_we_n), .sd_ba(sd_ba), .sd_a(sd_a), .sd_dqm(sd_dqm),
         .sd_dq_o(sd_dq_o), .sd_dq_oe(sd_dq_oe), .sd_dq_i(sd_dq_i)
@@ -119,13 +170,16 @@ module soc #(
                     mem_ready <= 1'b1;
                 end
             end else if (sel_sdram) begin
-                if (sd_ack) begin
+                if (cpu_ack) begin
                     mem_rdata <= sd_rdata;
                     mem_ready <= 1'b1;
                 end
             end else if (sel_uart) begin
                 mem_rdata <= mem_addr[3:2] == 2'd0 ? {24'd0, rx_data}
                                                    : {29'd0, rx_overrun, rx_avail, uart_busy};
+                mem_ready <= 1'b1;
+            end else if (sel_paula) begin
+                mem_rdata <= p_rdata_reg;
                 mem_ready <= 1'b1;
             end else if (sel_gpio) begin
                 if (mem_wstrb != 0 && mem_addr[3:2] == 2'd0)
@@ -141,3 +195,4 @@ module soc #(
 
     wire unused = mem_instr;
 endmodule
+`default_nettype wire

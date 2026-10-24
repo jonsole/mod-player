@@ -9,6 +9,11 @@
 /* Bytes of zeros kept after the Song for Paula to play as silence. */
 #define PLAYER_SILENCE_BYTES (128u * 1024u)
 
+/* After a Song stops (F00, or its end in play-once mode) the voices are
+ * switched off at the next tick boundary and Paula keeps ticking at this
+ * length (125 BPM). render and the simulation reference do the same. */
+#define PLAYER_SILENT_TICK 70940u
+
 void player_init(void);
 /* Checks the MOD file at mem (CPU address); NULL if good, else why not. */
 const char *player_load(uint8_t *mem, uint32_t size);

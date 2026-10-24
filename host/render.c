@@ -109,13 +109,24 @@ int main(int argc, char **argv)
     uint32_t frames = (uint32_t)(seconds * OUT_RATE);
     uint32_t tick_left = 0, phase = 0, count = 0;
     int64_t sum_l = 0, sum_r = 0;
-    int last_tick = 0;
+    int last_tick = 0, silent = 0;
     while (wav.frames < frames) {
         if (tick_left == 0) {
             if (last_tick)
                 break;
-            tick_left = replayer_tick(&rp);
-            last_tick = play_once && (rp.ended || rp.stopped);
+            if (silent) {
+                tick_left = 70940;
+            } else if (rp.stopped) {
+                /* F00: as on the board, the voices go off at the next tick */
+                paula_model_write(&paula, PAULA_DMACON, 0xF);
+                for (int v = 0; v < PAULA_VOICES; v++)
+                    paula_model_write(&paula, PAULA_VOICE(v) + PAULA_VOL, 0);
+                silent = 1;
+                tick_left = 70940;
+            } else {
+                tick_left = replayer_tick(&rp);
+                last_tick = play_once && (rp.ended || rp.stopped);
+            }
         }
         tick_left--;
         paula_frame_t f = paula_model_step(&paula);
