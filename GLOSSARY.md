@@ -12,6 +12,26 @@ _Avoid_: module, tune, track
 The file on disk that holds one Song in Amiga ProTracker format.
 _Avoid_: module, .mod (as a noun)
 
+**Sample**:
+One of a Song's (up to) 31 recorded sounds, with its own length, loop, volume and finetune.
+_Avoid_: instrument, waveform
+
+**Pattern**:
+A block of 64 rows of note data for all four channels.
+_Avoid_: block, page
+
+**Row**:
+One line of a Pattern: at most one note and one effect per channel.
+_Avoid_: line, step
+
+**Channel**:
+One of a Pattern's four columns; channel N is always played by voice N.
+_Avoid_: track, voice (that is the Paula unit)
+
+**Position**:
+One entry in the Song's playing order, naming which Pattern plays next.
+_Avoid_: order, sequence entry, song position
+
 ## Playback
 
 **Paula**:
