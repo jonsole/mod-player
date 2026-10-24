@@ -5,8 +5,11 @@
 // precharge and a burst of 2 (low half first). Byte enables become DQM.
 // Rows are closed after every access, so there is no page bookkeeping.
 // The SDRAM clock is the controller clock inverted (done at the pin), so
-// commands and write data are sampled half a cycle after they leave here;
-// read data is captured CL + 1 = 3 clocks after the READ.
+// commands and write data are sampled half a cycle after they leave here.
+// Read data then arrives about 2-16 ns after one of our rising edges (the
+// chip's 6 ns access time plus pin delays), so it is captured on our
+// FALLING edge, in the middle of that window, 3.5 clocks after the READ,
+// and used at the next rising edge.
 //
 // Host port: hold req (with we/addr/wdata/wstrb) until ack, which pulses
 // for one clock with rdata for reads.
@@ -65,6 +68,10 @@ module sdram_ctrl #(
 
     reg         l_we;
     reg  [9:2]  l_col;                          // column part of the latched address
+    reg  [15:0] dq_fall;                        // read data, captured mid-window
+
+    always @(negedge clk)
+        dq_fall <= sd_dq_i;
     reg  [31:0] l_wdata;
     reg  [3:0]  l_wstrb;
 
@@ -164,13 +171,13 @@ module sdram_ctrl #(
                 ack <= 1'b1;
                 count <= 3; after_wait <= S_IDLE; state <= S_WAIT;
             end
-            S_READ: begin                       // data arrives 3 and 4 clocks after READ
+            S_READ: begin                       // captured 3.5 and 4.5 clocks after READ
                 step <= step + 1'b1;
-                if (step == 3'd2) rdata[15:0] <= sd_dq_i;
-                if (step == 3'd3) begin
-                    rdata[31:16] <= sd_dq_i;
+                if (step == 3'd3) rdata[15:0] <= dq_fall;
+                if (step == 3'd4) begin
+                    rdata[31:16] <= dq_fall;
                     ack <= 1'b1;
-                    count <= 2; after_wait <= S_IDLE; state <= S_WAIT;
+                    count <= 1; after_wait <= S_IDLE; state <= S_WAIT;
                 end
             end
             S_WAIT: begin

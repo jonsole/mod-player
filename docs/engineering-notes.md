@@ -58,3 +58,27 @@ Paula's engine was first written for clarity (13 clocks per colour clock, but on
 **Delta-sigma DAC** (`hw/rtl/dac_dsm.v`): second order, input scaled by 13/16 for loop stability. The testbench runs the 50 MHz bitstream through a model of the board's RC filter (3.3 kΩ, 4.7 nF) and FFTs the audio band: 127 dB SNR at full scale, and no idle tones above −130 dBFS near silence, so no dither.
 
 **SDRAM controller** (`hw/rtl/sdram_ctrl.v`): closed-page, every 32-bit access is ACTIVE then READ/WRITE with auto-precharge and a 2-beat burst; refresh every 7.4 µs. The SDRAM *model* (`hw/sim/sdram_model.h`) stores data and referees every datasheet rule (power-up wait and sequence, mode register, tRCD/tRP/tRC/tRAS/tWR/tRFC, refresh interval, bus contention), and drives garbage outside read windows so a capture one cycle off shows up as corrupt data. It caught a bug that would have hit real hardware: FPGA registers power up as 0, so before reset the SDRAM pins said "chip select, MODE REGISTER". The pin registers now have power-up values.
+
+**Serial loading** (`docs/protocol.md`): 1 Mbaud, one-byte commands; a Song goes over as `L` + length + data + CRC-32 and the board replies in text lines ending `OK`/`ERR`. The same Python module (`tools/modplayer.py`) encodes frames for the simulation tests and is the PC command-line tool, so the tests exercise the code you'll actually run.
+
+**The whole chip**: Paula sits on the bus and shares the SDRAM with the CPU through an arbiter (Paula first; its 16-bit fetches map onto the controller's 32-bit words). The firmware's player waits for Paula's tick flag, runs a Replayer tick and writes the next tick length. The full-chip test drops a Song into the SDRAM model through a back door, starts it over serial, and from the moment the firmware sets Paula's options compares *every audio frame* with the PC reference: 21 Songs × 5 s, plus a play-once run and a run paced at the real 50 MHz (the others let Paula run unpaced, which is ~4× faster to simulate and still exact).
+
+It found three more bugs, all of which would have shown up on the board:
+- Paula kept processing colour clocks while paused, and a restart that arrived mid-colour-clock let the tick counter wrap from 0 to 2³²−1: no tick boundary for hours.
+- Stopping a Song (F00, or the end in play-once mode) paused Paula at a CPU-dependent moment. Now the silence is queued for the next tick boundary like any other write, and `render` follows the same rule.
+
+## Phase 3: the board
+
+`hw/board/minispartan6/` has the top level, pin constraints and an ISE command-line build (`docs/board.md` says how to build, program and use it). ISE can't run here, so the board work is checked three other ways:
+
+- **Pins**: all 56 locations are cross-checked by script against Scarab's published UCF.
+- **Synthesis**: Yosys (`synth_xilinx -family xc6s`) synthesises the whole design: about 4100 LUTs (27 % of the LX25), 2600 flip-flops, 18 DSP48A1, 17 block RAMs.
+- **Board-level simulation**: `top.v` itself, with models of `ODDR2`/`IOBUF` and the SDRAM model on the pins, boots, plays a left-only Song and checks that the RC-filtered left pin swings and the right pin stays quiet.
+
+Working through real pin timing on paper turned up one more problem the idealised SDRAM model had hidden. With the SDRAM clocked from the inverted system clock, read data arrives about 6 ns (access time) plus 4–5 ns (pin delays) after the chip's clock edge, i.e. it is valid from just *after* one of our rising edges to ~16 ns later. Capturing on the rising edge, as the controller did, lands right in the transition. It now captures on the falling edge, mid-window. The testbenches were made to present read data only around that edge (and garbage at rising edges), and with that change the old capture point fails in simulation, as it would have on the board. Paula's longest path (blend, then a 32×18 multiply-add) was also split over two clocks; Paula has spare cycles (4–6 of 14 per colour clock).
+
+## Where it stands
+
+- Phase 1 (PC reference) and phase 2 (full-chip simulation) are done; `make test` runs everything in about two minutes.
+- The board build has not been run through ISE or tried on hardware. `docs/board.md` lists what to check first.
+- Not started: the boot loader and saving a Song to flash (phase 5), microSD (phase 6), HDMI (phase 7).

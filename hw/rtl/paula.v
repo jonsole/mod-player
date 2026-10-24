@@ -89,12 +89,13 @@ module paula #(
     // ---- engine ------------------------------------------------------------
     // Per colour clock: S_MIX (mix the current samples, count down every
     // voice's period), S_STEP (play the next byte for voices whose period ran
-    // out, fetching a word when one is used up), S_POST (blend, A500 filter,
-    // first LED filter step), then S_LED2/S_LED3 if the LED filter is on.
+    // out, fetching a word when one is used up), S_POST (blend), S_POST2 (A500
+    // filter, first LED filter step), then S_LED2/S_LED3 if the LED filter is
+    // on. The output stage is split so no path has more than one multiply.
     localparam S_IDLE = 4'd0, S_COMMIT = 4'd1, S_COMMIT_WAIT = 4'd2, S_APPLY = 4'd3,
                S_START = 4'd4, S_MIX = 4'd5, S_STEP = 4'd6, S_FETCH = 4'd7,
                S_POST = 4'd8, S_LED2 = 4'd9, S_LED3 = 4'd10, S_INV_RD = 4'd11,
-               S_INV_WR = 4'd12;
+               S_INV_WR = 4'd12, S_POST2 = 4'd13;
     reg  [3:0]  state, fetch_ret;
     reg  [7:0]  drain_left;
     reg  [3:0]  start_mask, step_mask;
@@ -105,6 +106,7 @@ module paula #(
     reg  signed [31:0] y_l, y_r;       // Q15
     reg  signed [31:0] a500_l, a500_r, low_l, low_r, band_l, band_r, high_l, high_r;
     reg  signed [31:0] damp_l, damp_r;
+    reg  signed [31:0] y0_l_q, y0_r_q, diff_l, diff_r;   // S_POST -> S_POST2
 
     /* verilator lint_off UNUSEDSIGNAL */
     /* verilator lint_off BLKSEQ */
@@ -145,10 +147,10 @@ module paula #(
     wire signed [31:0] x_l = options[0] ? {{14{blend_l[17]}}, blend_l} : {{16{mix_l[15]}}, mix_l};
     wire signed [31:0] x_r = options[0] ? {{14{blend_r[17]}}, blend_r} : {{16{mix_r[15]}}, mix_r};
     wire signed [31:0] y0_l = x_l <<< 15, y0_r = x_r <<< 15;
-    wire signed [31:0] a500_l_next = a500_l + mul16(y0_l - a500_l, A500_K);
-    wire signed [31:0] a500_r_next = a500_r + mul16(y0_r - a500_r, A500_K);
-    wire signed [31:0] y1_l = options[1] ? a500_l_next : y0_l;
-    wire signed [31:0] y1_r = options[1] ? a500_r_next : y0_r;
+    wire signed [31:0] a500_l_next = a500_l + mul16(diff_l, A500_K);
+    wire signed [31:0] a500_r_next = a500_r + mul16(diff_r, A500_K);
+    wire signed [31:0] y1_l = options[1] ? a500_l_next : y0_l_q;
+    wire signed [31:0] y1_r = options[1] ? a500_r_next : y0_r_q;
     wire               led_on = led && !options[2];
     wire signed [15:0] y1_l_out = y1_l[30:15], y1_r_out = y1_r[30:15];   // >> 15
     wire signed [15:0] low_l_out = low_l[30:15], low_r_out = low_r[30:15];
@@ -353,7 +355,14 @@ module paula #(
                     state <= fetch_ret;
                 end
             end
-            S_POST: begin
+            S_POST: begin                       // blend; A500 filter input
+                y0_l_q <= y0_l;
+                y0_r_q <= y0_r;
+                diff_l <= y0_l - a500_l;
+                diff_r <= y0_r - a500_r;
+                state <= S_POST2;
+            end
+            S_POST2: begin
                 if (options[1]) begin
                     a500_l <= a500_l_next;
                     a500_r <= a500_r_next;

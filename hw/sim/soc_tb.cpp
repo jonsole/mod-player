@@ -161,11 +161,13 @@ int main(int argc, char **argv)
             dut->uart_rx = 1;
         }
 
+        // read data is valid around our falling edge only (see sdram_model.h)
+        dut->sd_dq_i = sdram.dq_in;
         dut->clk = 0;
         dut->eval();
         sdram.step(dut->sd_cke, dut->sd_cs_n, dut->sd_ras_n, dut->sd_cas_n, dut->sd_we_n,
                    dut->sd_ba, dut->sd_a, dut->sd_dqm, dut->sd_dq_o, dut->sd_dq_oe);
-        dut->sd_dq_i = sdram.dq_in;
+        dut->sd_dq_i = sdram.dq_garbage();
         dut->clk = 1;
         dut->eval();
         if (sdram.failures) {

@@ -5,9 +5,13 @@
 //
 // Call step() once per controller clock, after the falling edge (that is
 // the SDRAM's rising edge: its clock is the controller clock inverted).
-// It samples the command pins and drives dq_in, which the controller reads
-// at its next rising edge. Outside read data windows dq_in is random, so a
-// controller that samples a cycle early or late reads garbage.
+// It samples the command pins and computes dq_in. With real pin delays and
+// the chip's access time, read data is valid from just after the next
+// rising edge until shortly after the falling edge after that; testbenches
+// therefore present dq_in to the controller only for its next FALLING
+// edge, and random data at the rising edges (see dq_garbage()). Outside
+// read windows dq_in itself is random, so a controller that samples a
+// cycle early or late reads garbage.
 //
 // The controller is expected to use burst length 2, CAS latency 2 and auto
 // precharge. Timing limits are for a -6/-7 speed grade part, rounded up to
@@ -52,6 +56,7 @@ struct SdramModel {
             printf("SDRAM FAIL at cycle %lld: %s\n", cycle, what);
     }
     uint32_t rnd() { rng = rng * 1103515245u + 12345u; return rng >> 8; }
+    uint16_t dq_garbage() { return (uint16_t)rnd(); }
 
     void write_beat(uint32_t addr, uint16_t dq, int dqm, bool oe)
     {

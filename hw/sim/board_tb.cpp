@@ -60,13 +60,16 @@ int main(int argc, char **argv)
             if (--tx_timer == 0) { tx_timer = BIT; if (++tx_bit == 10) tx_bit = -1; }
         }
 
+        // read data is valid around our falling edge only (see sdram_model.h)
+        dut->dq_from_sdram = sdram.dq_in;
+        dut->dq_sdram_drives = sdram.driving;
         dut->CLK50 = 0;
         dut->eval();
         if (dut->SDRAM_CLK != 1) { printf("FAIL: SDRAM clock is not the inverse of the system clock\n"); return 1; }
         sdram.step(dut->SDRAM_CKE, dut->SDRAM_CSn, dut->SDRAM_RASn, dut->SDRAM_CASn, dut->SDRAM_WEn,
                    dut->SDRAM_BA, dut->SDRAM_A, dut->SDRAM_LDQM | dut->SDRAM_UDQM << 1,
                    dut->dq_from_fpga, dut->dq_fpga_drives);
-        dut->dq_from_sdram = sdram.dq_in;
+        dut->dq_from_sdram = sdram.dq_garbage();
         dut->dq_sdram_drives = sdram.driving;
         dut->CLK50 = 1;
         dut->eval();
