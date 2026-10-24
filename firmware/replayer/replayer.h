@@ -32,6 +32,8 @@ typedef struct {
     uint8_t n_tremolopos;
     uint8_t n_vibratocmd;
     uint8_t n_tremolocmd;
+    uint8_t n_sampleoffset; /* 9xx memory */
+    uint8_t n_funkoffset;   /* invert-loop counter */
     uint8_t n_pattpos;    /* pattern loop start row (E60) */
     uint8_t n_loopcount;
 } replayer_channel_t;

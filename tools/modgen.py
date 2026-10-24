@@ -107,6 +107,8 @@ def effect_song(name, cells, positions=(0,)):
     for number, finetune in ((4, 15), (5, 7), (6, 8), (7, 1)):  # -1, +7, -8, +1
         song.sample(number, square_cycle(32) * 2, volume=50, finetune=finetune,
                     loop=(0, 64), name="finetune %d" % finetune)
+    sweep = [round(100 * math.sin(i * i / 20000)) for i in range(4096)]
+    song.sample(8, sweep, volume=60, loop=(2048, 2048), name="long sweep")
     for cell in cells:
         song.note(*cell)
     song.positions = list(positions)
@@ -279,6 +281,56 @@ def tempo_song():
     return effect_song("tempo", cells)
 
 
+def sample_offset_song():
+    S = 8
+    cells = [(0, 0, 0, C2, S, 9, 4), (0, 2, 0, C2, S, 9, 0),        # offset, then memory
+             (0, 4, 0, C2, S, 9, 0x20), (0, 6, 0, C2, S, 9, 0xFF),  # past the end: length 1
+             (0, 8, 0, 0, 0, 9, 2), (0, 10, 0, C2, 0, 0, 0),        # no note: moves the start
+             (0, 12, 0, C2, S, 9, 0x08), (0, 13, 0, E2, 0, 3, 0x40),
+             (0, 14, 0, 0, 0, 9, 1), (0, 16, 0, G2, S, 0xE, 0x91)]  # retrigger after offset
+    cells += [(0, 0, 1, C2, 3, 9, 1), (0, 4, 1, C2, 1, 9, 1), (0, 8, 1, C2, 3, 9, 3),
+              (0, 12, 1, E2, 2, 9, 0)]
+    return effect_song("sample offset", cells)
+
+
+def retrigger_song():
+    cells = [(0, 0, 0, C2, 3, 0xE, 0x91), (0, 2, 0, 0, 0, 0xE, 0x92), (0, 4, 0, E2, 0, 0xE, 0x93),
+             (0, 6, 0, 0, 0, 0xE, 0x90), (0, 8, 0, C2, 3, 0xE, 0x95), (0, 10, 0, 0, 0, 0xE, 0x9F),
+             (0, 12, 0, 0, 0, 0xF, 12), (0, 13, 0, 0, 0, 0xE, 0x94), (0, 14, 0, G2, 1, 0xE, 0x97)]
+    cells += [(0, 1, 1, 0, 0, 0xE, 0x92), (0, 3, 1, E2, 2, 0xE, 0x91)]   # nothing played yet
+    return effect_song("retrigger", cells)
+
+
+def note_cut_delay_song():
+    cells = [(0, 0, 0, C2, 1, 0xE, 0xC2), (0, 2, 0, C2, 1, 0xE, 0xC0), (0, 4, 0, C2, 1, 0xE, 0xC9),
+             (0, 6, 0, E2, 2, 0xE, 0xC5), (0, 7, 0, 0, 0, 0xE, 0xC1)]
+    cells += [(0, 0, 1, C2, 3, 0xE, 0xD2), (0, 2, 1, E2, 3, 0xE, 0xD0), (0, 4, 1, G2, 1, 0xE, 0xD7),
+              (0, 6, 1, 0, 0, 0xE, 0xD3), (0, 8, 1, C3, 2, 0xE, 0xD5), (0, 9, 1, 0, 4, 0xE, 0xD1),
+              (0, 10, 1, C2, 0, 0xE, 0xD4)]
+    return effect_song("note cut and delay", cells)
+
+
+def finetune_effect_song():
+    cells = [(0, 0, 0, C2, 1, 0xE, 0x57), (0, 1, 0, C2, 1, 0, 0), (0, 2, 0, 0, 0, 0xE, 0x5F),
+             (0, 3, 0, E2, 0, 0, 0), (0, 4, 0, E2, 0, 0, 0x37), (0, 6, 0, G2, 4, 0xE, 0x50),
+             (0, 8, 0, C2, 0, 3, 8), (0, 10, 0, C3, 0, 0xE, 0x58), (0, 11, 0, C3, 0, 3, 0x40)]
+    return effect_song("finetune effect", cells)
+
+
+def invert_loop_song():
+    cells = [(0, 0, 0, C2, 1, 0xE, 0xF5), (0, 8, 0, 0, 0, 0xE, 0xFF), (0, 12, 0, 0, 0, 0xE, 0xF0),
+             (0, 14, 0, E2, 2, 0xE, 0xF8), (0, 20, 0, C2, 3, 0xE, 0xFD),       # non-looping
+             (0, 24, 0, C2, 8, 0xE, 0xFC), (0, 30, 0, 0, 1, 0xE, 0xF1)]        # Sample change
+    cells += [(0, 2, 1, E2, 1, 0xE, 0xF3), (0, 4, 1, 0, 0, 1, 1), (0, 5, 1, 0, 0, 0xA, 1)]
+    return effect_song("invert loop", cells, positions=(0, 0))
+
+
+def filter_song():
+    cells = [(0, 0, 0, C2, 1, 0xE, 0x00), (0, 2, 0, 0, 0, 0xE, 0x01), (0, 4, 1, 0, 0, 0xE, 0x02),
+             (0, 6, 2, 0, 0, 0xE, 0x03), (0, 8, 3, 0, 0, 0xE, 0x0E), (0, 9, 0, 0, 0, 0xE, 0x80)]
+    return effect_song("filter", cells)
+
+
 GENERATED = {
     "plain-notes.mod": plain_notes_song,
     "volume-set.mod": volume_set_song,
@@ -294,6 +346,12 @@ GENERATED = {
     "pattern-loop.mod": pattern_loop_song,
     "pattern-delay.mod": pattern_delay_song,
     "tempo.mod": tempo_song,
+    "sample-offset.mod": sample_offset_song,
+    "retrigger.mod": retrigger_song,
+    "note-cut-delay.mod": note_cut_delay_song,
+    "finetune-effect.mod": finetune_effect_song,
+    "invert-loop.mod": invert_loop_song,
+    "filter.mod": filter_song,
 }
 
 

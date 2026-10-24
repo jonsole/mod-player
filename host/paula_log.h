@@ -33,6 +33,14 @@ void paula_log_start(paula_log_t *log);
 void paula_log_tick(paula_log_t *log, unsigned tick, unsigned pos, unsigned row, unsigned bpm,
                     uint32_t cck);
 
+/* Prints a fingerprint of one Sample's data (1..31), so changes the
+ * Replayer makes to Sample memory (invert loop) are compared too. */
+void paula_log_sample(paula_log_t *log, int number, const uint8_t *data, uint32_t len);
+
+/* Both sides fingerprint at most this many bytes per Sample (ProTracker's
+ * Sample size limit). */
+#define PAULA_LOG_SAMPLE_MAX 65534u
+
 paula_port_t paula_log_port(paula_log_t *log);
 
 #endif

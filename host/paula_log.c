@@ -26,6 +26,10 @@ void paula_log_write(paula_log_t *log, uint32_t reg, uint32_t value)
         add(log, "  DMACON %04X\n", value & 0xFFFF);
         return;
     }
+    if (reg == PAULA_LED_FILTER) {
+        paula_log_filter(log, (int)value);
+        return;
+    }
     unsigned voice = reg >> 4, which = (reg & 0xF) >> 2;
     if (reg & 0xFFFFFFC3u || voice >= PAULA_VOICES) {
         add(log, "  REG%02X %u\n", reg, value);
@@ -62,6 +66,16 @@ void paula_log_tick(paula_log_t *log, unsigned tick, unsigned pos, unsigned row,
 {
     fprintf(log->out, "tick %u pos %u row %u bpm %u cck %u\n", tick, pos, row, bpm, cck);
     flush(log);
+}
+
+void paula_log_sample(paula_log_t *log, int number, const uint8_t *data, uint32_t len)
+{
+    uint32_t h = 2166136261u; /* FNV-1a */
+    if (len > PAULA_LOG_SAMPLE_MAX)
+        len = PAULA_LOG_SAMPLE_MAX;
+    for (uint32_t i = 0; i < len; i++)
+        h = (h ^ data[i]) * 16777619u;
+    fprintf(log->out, "sample %d length %u data %08x\n", number, len, h);
 }
 
 static void port_write(void *ctx, uint32_t reg, uint32_t value)

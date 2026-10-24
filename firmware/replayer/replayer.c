@@ -270,6 +270,101 @@ static void set_vibrato_control(replayer_channel_t *c) /* E4x */
     c->n_wavecontrol = (uint8_t)((c->n_wavecontrol & 0xF0) | (c->n_cmd & 0x0F));
 }
 
+/* ---- Sample effects ------------------------------------------------------ */
+
+static void sample_offset(replayer_channel_t *c) /* 9xx */
+{
+    if (c->n_cmd & 0xFF)
+        c->n_sampleoffset = c->n_cmd & 0xFF;
+    uint16_t offset = (uint16_t)(c->n_sampleoffset << 7); /* in words */
+    if (offset < c->n_length) {
+        c->n_length = (uint16_t)(c->n_length - offset);
+        c->n_start += (uint32_t)offset << 1;
+    } else {
+        c->n_length = 1;
+    }
+}
+
+/* Restart the voice's Sample now (retrigger and note delay). */
+static void do_retrig(replayer_t *r, int v)
+{
+    replayer_channel_t *c = &r->ch[v];
+    paula_write(r, PAULA_DMACON, c->n_dmabit);
+    write_ptr(r, v, c->n_start);
+    write_voice(r, v, PAULA_LEN, c->n_length);
+    write_voice(r, v, PAULA_PER, (uint16_t)c->n_period);
+    paula_write(r, PAULA_DMACON, PAULA_DMACON_SET | c->n_dmabit);
+    write_ptr(r, v, c->n_loopstart);
+    write_voice(r, v, PAULA_LEN, c->n_replen);
+}
+
+static void retrig_note(replayer_t *r, int v) /* E9x */
+{
+    replayer_channel_t *c = &r->ch[v];
+    unsigned x = c->n_cmd & 0xF;
+    if (x == 0 || (r->tick == 0 && (c->n_note & 0xFFF)))
+        return;
+    if (r->tick % x == 0)
+        do_retrig(r, v);
+}
+
+static void note_cut(replayer_t *r, replayer_channel_t *c) /* ECx */
+{
+    if (r->tick == (c->n_cmd & 0xF))
+        c->n_volume = 0;
+}
+
+static void note_delay(replayer_t *r, int v) /* EDx */
+{
+    replayer_channel_t *c = &r->ch[v];
+    if (r->tick == (c->n_cmd & 0xF) && (c->n_note & 0xFFF))
+        do_retrig(r, v);
+}
+
+static void set_fine_tune(replayer_channel_t *c) /* E5x */
+{
+    c->n_finetune = c->n_cmd & 0xF;
+}
+
+static void filter_on_off(replayer_t *r, replayer_channel_t *c) /* E0x: 0 = on */
+{
+    if (r->tick == 0)
+        paula_write(r, PAULA_LED_FILTER, (c->n_cmd & 1) ^ 1);
+}
+
+static const uint8_t funk_table[16] = {0x00, 0x05, 0x06, 0x07, 0x08, 0x0A, 0x0B, 0x0D,
+                                       0x10, 0x13, 0x16, 0x1A, 0x20, 0x2B, 0x40, 0x80};
+
+/* Invert loop: every so often, flip one byte of the loop, walking along it. */
+static void update_funk(replayer_t *r, replayer_channel_t *c)
+{
+    unsigned speed = c->n_glissfunk >> 4;
+    if (speed == 0)
+        return;
+    unsigned off = c->n_funkoffset + funk_table[speed];
+    c->n_funkoffset = (uint8_t)off;
+    if (off < 128)
+        return;
+    c->n_funkoffset = 0;
+    /* ProTracker would also flip bytes of the shared silent Sample; skip it */
+    if (c->n_loopstart == REPLAYER_NO_SAMPLE || c->n_wavestart == REPLAYER_NO_SAMPLE ||
+        c->n_loopstart == r->null_addr)
+        return;
+    if (++c->n_wavestart >= c->n_loopstart + ((uint32_t)c->n_replen << 1))
+        c->n_wavestart = c->n_loopstart;
+    uint8_t *p = r->mem + (c->n_wavestart - r->paula_base);
+    *p = (uint8_t)(-1 - (int8_t)*p);
+}
+
+static void funk_it(replayer_t *r, replayer_channel_t *c) /* EFx */
+{
+    if (r->tick != 0)
+        return;
+    c->n_glissfunk = (uint8_t)(((c->n_cmd & 0xF) << 4) | (c->n_glissfunk & 0xF));
+    if (c->n_glissfunk & 0xF0)
+        update_funk(r, c);
+}
+
 /* ---- song flow ----------------------------------------------------------- */
 
 static void set_speed(replayer_t *r, replayer_channel_t *c) /* Fxx */
@@ -345,6 +440,9 @@ static void e_commands(replayer_t *r, int v)
 {
     replayer_channel_t *c = &r->ch[v];
     switch ((c->n_cmd >> 4) & 0xF) {
+    case 0x0:
+        filter_on_off(r, c);
+        return;
     case 0x1:
         fine_porta_up(r, v);
         return;
@@ -357,6 +455,9 @@ static void e_commands(replayer_t *r, int v)
     case 0x4:
         set_vibrato_control(c);
         return;
+    case 0x5:
+        set_fine_tune(c);
+        return;
     case 0x6:
         jump_loop(r, c);
         return;
@@ -366,11 +467,25 @@ static void e_commands(replayer_t *r, int v)
     case 0xE:
         pattern_delay(r, c);
         return;
+    case 0x8: /* Karplus-Strong: off in ProTracker's default setup */
+        return;
+    case 0x9:
+        retrig_note(r, v);
+        return;
     case 0xA:
         volume_fine_up(r, c);
         return;
     case 0xB:
         volume_fine_down(r, c);
+        return;
+    case 0xC:
+        note_cut(r, c);
+        return;
+    case 0xD:
+        note_delay(r, v);
+        return;
+    case 0xF:
+        funk_it(r, c);
         return;
     default:
         return;
@@ -383,6 +498,7 @@ static void check_more_effects(replayer_t *r, int v)
     replayer_channel_t *c = &r->ch[v];
     switch ((c->n_cmd >> 8) & 0xF) {
     case 0x9:
+        sample_offset(c);
         return;
     case 0xB:
         position_jump(r, c);
@@ -409,6 +525,7 @@ static void check_more_effects(replayer_t *r, int v)
 static void chkefx2(replayer_t *r, int v)
 {
     replayer_channel_t *c = &r->ch[v];
+    update_funk(r, c);
     if ((c->n_cmd & 0xFFF) == 0)
         return;
     unsigned cmd = (c->n_cmd >> 8) & 0xF;
@@ -521,9 +638,15 @@ static void play_voice(replayer_t *r, int v, const uint8_t *cell)
         return;
     }
     unsigned cmd = (c->n_cmd >> 8) & 0xF;
-    if (cmd == 3 || cmd == 5) { /* tone portamento: slide to the note, don't trigger it */
+    if ((c->n_cmd & 0xFF0) == 0xE50) {
+        set_fine_tune(c);
+        set_period(r, v);
+    } else if (cmd == 3 || cmd == 5) { /* tone portamento: slide to the note, don't trigger it */
         set_tone_porta(c);
         check_more_effects(r, v);
+    } else if (cmd == 9) { /* offset applied here and again in set_period: a PT quirk */
+        check_more_effects(r, v);
+        set_period(r, v);
     } else {
         set_period(r, v);
     }

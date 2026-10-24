@@ -46,6 +46,7 @@ void setVisualsVolume(int32_t ch, int32_t vol) { (void)ch, (void)vol; }
 static paula_log_t plog;
 static int8_t null_sample[0xFFFF * 2];
 static uint32_t file_pos[MOD_SAMPLES]; /* where each Sample's data was in the file */
+static uint32_t file_len[MOD_SAMPLES]; /* how many bytes of it the file held */
 
 int8_t *paulaGetNullSamplePtr(void) { return null_sample; }
 
@@ -162,6 +163,7 @@ static const char *load(const uint8_t *buf, uint32_t size)
         uint32_t left = size - (uint32_t)(p - buf);
         uint32_t n = (uint32_t)s->length < left ? (uint32_t)s->length : left;
         memcpy(&song->sampleData[s->offset], p, n);
+        file_len[i] = (uint32_t)real_len[i] < left ? (uint32_t)real_len[i] : left;
         p += (uint32_t)real_len[i] < left ? (uint32_t)real_len[i] : left;
     }
     /* pt2_module_loader.c's fixes */
@@ -231,5 +233,8 @@ int main(int argc, char **argv)
         paula_log_tick(&plog, t, song->currPos, (unsigned)song->currRow, (unsigned)song->currBPM,
                        cck);
     }
+    for (int i = 0; i < MOD_SAMPLES; i++)
+        paula_log_sample(&plog, i + 1, (const uint8_t *)&song->sampleData[song->samples[i].offset],
+                         file_len[i]);
     return 0;
 }

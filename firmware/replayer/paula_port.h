@@ -17,6 +17,9 @@
  *
  * PAULA_DMACON works like the Amiga's: bit 15 set means "start the voices in
  * bits 0..3", bit 15 clear means "stop them".
+ *
+ * PAULA_LED_FILTER: 1 turns the Amiga "LED" low-pass filter on, 0 off
+ * (effect E0x; on the Amiga this lived in a CIA register).
  */
 #ifndef PAULA_PORT_H
 #define PAULA_PORT_H
@@ -32,6 +35,7 @@
 #define PAULA_VOL 0xCu
 #define PAULA_DMACON 0x40u
 #define PAULA_DMACON_SET 0x8000u
+#define PAULA_LED_FILTER 0x44u
 
 /* The PAL Amiga colour clock: Paula's time unit. */
 #define PAULA_CCK_HZ 3546895u

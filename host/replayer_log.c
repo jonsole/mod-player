@@ -41,5 +41,8 @@ int main(int argc, char **argv)
         uint32_t cck = replayer_tick(&rp);
         paula_log_tick(&log, t, rp.play_pos, rp.play_row, rp.bpm, cck);
     }
+    for (int i = 0; i < MOD_SAMPLES; i++)
+        paula_log_sample(&log, i + 1, mem + song.sample[i].offset,
+                         (uint32_t)song.sample[i].length * 2);
     return 0;
 }
