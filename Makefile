@@ -11,7 +11,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test soc-test firmware clean
+.PHONY: all test hw-test soc-test dsm-test firmware clean
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
 $(BUILD):
@@ -31,7 +31,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test soc-test
+test: $(UNIT_TESTS) all hw-test soc-test dsm-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command and pt2-clone oracle"; python3 -m unittest discover -s tests -p 'test_*.py'
 
@@ -103,3 +103,12 @@ $(BUILD)/soc_tb: $(SOC_RTL) hw/sim/soc_tb.cpp $(BUILD)/fw/firmware0.hex | $(BUIL
 
 soc-test: $(BUILD)/soc_tb
 	$(BUILD)/soc_tb "mod-player ready"
+
+# ---- delta-sigma audio output ------------------------------------------------
+$(BUILD)/dsm_tb: hw/rtl/dac_dsm.v hw/sim/dsm_tb.cpp | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module dac_dsm hw/rtl/dac_dsm.v $(CURDIR)/hw/sim/dsm_tb.cpp \
+		-Mdir $(BUILD)/obj_dsm -o dsm_tb >$(BUILD)/dsm_tb.log 2>&1 || (cat $(BUILD)/dsm_tb.log; false)
+	cp $(BUILD)/obj_dsm/dsm_tb $@
+
+dsm-test: $(BUILD)/dsm_tb
+	$(BUILD)/dsm_tb
