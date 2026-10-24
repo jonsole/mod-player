@@ -10,6 +10,7 @@ A standalone player for Amiga ProTracker MOD files on the Scarab miniSpartan6+ (
 - `firmware/replayer/`: the Replayer and MOD loader. Plain C with no C library, built for both the soft CPU and the PC.
 - `host/`: PC-only code: the Paula C model, WAV writer and `render` command.
 - `tools/modgen.py`: builds MOD files for tests; run it to write the generated test Songs.
+- `tools/modplayer.py`: the PC side of the serial protocol (`docs/protocol.md`): load, play, stop, pause, info.
 - `hw/rtl/`: the FPGA design in Verilog-2001 (Paula so far).
 - `hw/sim/`: Verilator testbenches.
 - `tests/`: unit tests (C), render-command tests, and the pt2-clone oracle (`tests/oracle/`, test-only, BSD-3).

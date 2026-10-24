@@ -34,8 +34,9 @@
  *   PAULA_STATUS    bit 0: tick boundary passed (write 1 to clear);
  *                   bit 1: write queue overflowed; bit 2: engine fell behind;
  *                   bit 3: running
- *   PAULA_CONTROL   write 1: start ticking (first boundary at the next colour
- *                   clock); write 0: stop
+ *   PAULA_CONTROL   bit 0 (RUN): 1 starts ticking, with the first boundary at
+ *                   the next colour clock; 0 pauses (queued writes are kept).
+ *                   bit 1 (FLUSH): discard queued writes.
  *
  * PAULA_OPTIONS: output options set by the player, not the Song:
  *   PAULA_OPT_BLEND   mix a quarter of each side into the other (board SW1)
@@ -69,6 +70,8 @@
 #define PAULA_STATUS_BEHIND 0x4u
 #define PAULA_STATUS_RUNNING 0x8u
 #define PAULA_CONTROL 0x58u
+#define PAULA_CONTROL_RUN 0x1u
+#define PAULA_CONTROL_FLUSH 0x2u
 
 /* The PAL Amiga colour clock: Paula's time unit. */
 #define PAULA_CCK_HZ 3546895u

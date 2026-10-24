@@ -390,11 +390,16 @@ module paula #(
             default: state <= S_IDLE;
             endcase
 
-            // control register last, so a start clears the tick countdown
+            // control register last, so it wins over the engine
             if (reg_we && reg_addr == R_CONTROL) begin
                 running <= reg_wdata[0];
                 tick_left <= 0;
                 if (!reg_wdata[0]) pending <= 0;
+                if (reg_wdata[1]) begin         // FLUSH: discard queued writes
+                    fifo_rp <= fifo_wp;
+                    fifo_count <= 0;
+                    drain_left <= 0;
+                end
             end
         end
     end

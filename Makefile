@@ -33,7 +33,7 @@ $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 
 test: $(UNIT_TESTS) all hw-test soc-test dsm-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
-	@echo "== render command and pt2-clone oracle"; python3 -m unittest discover -s tests -p 'test_*.py'
+	@echo "== render command and pt2-clone oracle"; python3 -m unittest tests.test_render tests.test_oracle
 
 clean:
 	rm -rf $(BUILD)
@@ -78,12 +78,12 @@ hw-test: $(BUILD)/paula_tb $(BUILD)/paula_tb_rt
 RV_PREFIX ?= riscv64-unknown-elf-
 RV_CFLAGS := -march=rv32im -mabi=ilp32 -Os -ffreestanding -nostdlib -Wall -Wextra -Werror \
              -ffunction-sections -fdata-sections -Ifirmware -Ifirmware/replayer
-FW_SRC    := firmware/runtime/start.S firmware/runtime/libc.c firmware/main.c firmware/memtest.c
+FW_SRC    := firmware/runtime/start.S firmware/runtime/libc.c $(wildcard firmware/*.c) $(REPLAYER_SRC)
 FW_WORDS  := 8192
 
-$(BUILD)/fw/firmware.elf: $(FW_SRC) firmware/runtime/link.ld $(wildcard firmware/*.h) | $(BUILD)
+$(BUILD)/fw/firmware.elf: $(FW_SRC) firmware/runtime/link.ld $(wildcard firmware/*.h firmware/replayer/*.h) | $(BUILD)
 	mkdir -p $(BUILD)/fw
-	$(RV_PREFIX)gcc $(RV_CFLAGS) -T firmware/runtime/link.ld -Wl,--gc-sections -o $@ $(FW_SRC) -lgcc
+	$(RV_PREFIX)gcc $(RV_CFLAGS) -T firmware/runtime/link.ld -Wl,--gc-sections,--no-warn-rwx-segments -o $@ $(FW_SRC) -lgcc
 	$(RV_PREFIX)size $@
 
 $(BUILD)/fw/firmware0.hex: $(BUILD)/fw/firmware.elf tools/bin2lanes.py
@@ -93,7 +93,7 @@ $(BUILD)/fw/firmware0.hex: $(BUILD)/fw/firmware.elf tools/bin2lanes.py
 firmware: $(BUILD)/fw/firmware0.hex
 
 # ---- SoC simulation ---------------------------------------------------------
-SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/sdram_ctrl.v hw/rtl/third_party/picorv32/picorv32.v
+SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/uart_rx.v hw/rtl/sdram_ctrl.v hw/rtl/third_party/picorv32/picorv32.v
 
 $(BUILD)/soc_tb: $(SOC_RTL) hw/sim/soc_tb.cpp hw/sim/sdram_model.h $(BUILD)/fw/firmware0.hex | $(BUILD)
 	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module soc \
@@ -103,7 +103,8 @@ $(BUILD)/soc_tb: $(SOC_RTL) hw/sim/soc_tb.cpp hw/sim/sdram_model.h $(BUILD)/fw/f
 	cp $(BUILD)/obj_soc/soc_tb $@
 
 soc-test: $(BUILD)/soc_tb
-	$(BUILD)/soc_tb "sdram ok" 60000000
+	$(BUILD)/soc_tb "ready"
+	python3 -m unittest tests.test_soc
 
 # ---- delta-sigma audio output ------------------------------------------------
 $(BUILD)/dsm_tb: hw/rtl/dac_dsm.v hw/sim/dsm_tb.cpp | $(BUILD)

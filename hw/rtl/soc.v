@@ -4,7 +4,9 @@
 // Address map (see firmware/hw.h):
 //   0x0000_0000  firmware RAM (block RAM)
 //   0x1000_0000  SDRAM, 32 MB
-//   0x2000_0000  serial port: +0 data (write: send a byte), +4 status (bit 0: busy)
+//   0x2000_0000  serial port: +0 data (write: send a byte; read: take a
+//                received byte), +4 status (bit 0: sending, bit 1: byte
+//                waiting, bit 2: receive overrun; write bit 2 to clear)
 //   0x2000_0200  board I/O: +0 LEDs (write), +4 DIP switches (read)
 module soc #(
     parameter CLK_HZ      = 50000000,
@@ -91,6 +93,17 @@ module soc #(
         .data(mem_wdata[7:0]), .busy(uart_busy), .tx(uart_tx)
     );
 
+    wire       rx_avail, rx_overrun;
+    wire [7:0] rx_data;
+    wire       uart_read = mem_valid && !mem_ready && sel_uart && mem_wstrb == 0;
+    uart_rx #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) urx (
+        .clk(clk), .rst(rst), .rx(uart_rx),
+        .pop(uart_read && mem_addr[3:2] == 2'd0),
+        .clear_overrun(mem_valid && !mem_ready && sel_uart && mem_addr[3:2] == 2'd1 &&
+                       mem_wstrb != 0 && mem_wdata[2]),
+        .data(rx_data), .avail(rx_avail), .overrun(rx_overrun)
+    );
+
     // ---- bus responses ----
     always @(posedge clk) begin
         mem_ready <= 1'b0;
@@ -111,7 +124,8 @@ module soc #(
                     mem_ready <= 1'b1;
                 end
             end else if (sel_uart) begin
-                mem_rdata <= {31'd0, uart_busy};
+                mem_rdata <= mem_addr[3:2] == 2'd0 ? {24'd0, rx_data}
+                                                   : {29'd0, rx_overrun, rx_avail, uart_busy};
                 mem_ready <= 1'b1;
             end else if (sel_gpio) begin
                 if (mem_wstrb != 0 && mem_addr[3:2] == 2'd0)
@@ -125,5 +139,5 @@ module soc #(
         end
     end
 
-    wire unused = uart_rx | mem_instr;
+    wire unused = mem_instr;
 endmodule
