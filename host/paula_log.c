@@ -7,6 +7,14 @@ void paula_log_init(paula_log_t *log, FILE *out, uint32_t samples_start, uint32_
     log->samples_start = samples_start;
     log->null_addr = null_addr;
     log->len = 0;
+    log->mem = 0;
+    log->mem_size = 0;
+}
+
+void paula_log_memory(paula_log_t *log, uint8_t *mem, uint32_t mem_size)
+{
+    log->mem = mem;
+    log->mem_size = mem_size;
 }
 
 static void add(paula_log_t *log, const char *fmt, ...)
@@ -24,6 +32,11 @@ void paula_log_write(paula_log_t *log, uint32_t reg, uint32_t value)
     static const char *names[4] = {"PTR", "LEN", "PER", "VOL"};
     if (reg == PAULA_DMACON) {
         add(log, "  DMACON %04X\n", value & 0xFFFF);
+        return;
+    }
+    if (reg == PAULA_INVERT) {
+        if (value < log->mem_size)
+            log->mem[value] = (uint8_t)~log->mem[value];
         return;
     }
     if (reg == PAULA_LED_FILTER) {

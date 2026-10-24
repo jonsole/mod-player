@@ -21,6 +21,22 @@
  * PAULA_LED_FILTER: 1 turns the Amiga "LED" low-pass filter on, 0 off
  * (effect E0x; on the Amiga this lived in a CIA register).
  *
+ * PAULA_INVERT: flip every bit of the byte at this address in Paula's memory
+ * (invert loop, EFx). It goes through Paula rather than the CPU writing
+ * memory, so it happens at the same moment as the tick's other writes.
+ *
+ * On the board, writes to all the registers above are queued and applied
+ * together at the next tick boundary (ADR-0009); the PC model applies them
+ * at once, which is the same thing seen from Paula's side.
+ *
+ * Board-only registers (not queued):
+ *   PAULA_TICK_LEN  colour clocks in the next tick; loaded at each boundary
+ *   PAULA_STATUS    bit 0: tick boundary passed (write 1 to clear);
+ *                   bit 1: write queue overflowed; bit 2: engine fell behind;
+ *                   bit 3: running
+ *   PAULA_CONTROL   write 1: start ticking (first boundary at the next colour
+ *                   clock); write 0: stop
+ *
  * PAULA_OPTIONS: output options set by the player, not the Song:
  *   PAULA_OPT_BLEND   mix a quarter of each side into the other (board SW1)
  *   PAULA_OPT_A500    the Amiga 500's fixed 4421 Hz low-pass filter (SW2)
@@ -45,6 +61,14 @@
 #define PAULA_OPT_BLEND 0x1u
 #define PAULA_OPT_A500 0x2u
 #define PAULA_OPT_NO_LED 0x4u
+#define PAULA_INVERT 0x4Cu
+#define PAULA_TICK_LEN 0x50u
+#define PAULA_STATUS 0x54u
+#define PAULA_STATUS_TICK 0x1u
+#define PAULA_STATUS_QUEUE_OVERFLOW 0x2u
+#define PAULA_STATUS_BEHIND 0x4u
+#define PAULA_STATUS_RUNNING 0x8u
+#define PAULA_CONTROL 0x58u
 
 /* The PAL Amiga colour clock: Paula's time unit. */
 #define PAULA_CCK_HZ 3546895u

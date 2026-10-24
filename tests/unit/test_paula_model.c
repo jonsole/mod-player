@@ -33,7 +33,7 @@ static const int8_t ramp[8] = {10, -20, 30, 40, 50, 60, 70, 80};
 
 static void a_started_voice_plays_each_sample_for_one_period(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     start_voice(0, 0, 4, 120, 64);
     expect_frames(120, 10 * 64, 0);
     expect_frames(120, -20 * 64, 0);
@@ -42,7 +42,7 @@ static void a_started_voice_plays_each_sample_for_one_period(void)
 
 static void voices_1_and_4_play_left_2_and_3_play_right(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     start_voice(0, 0, 4, 200, 1);  /* left:  10 */
     start_voice(1, 2, 3, 200, 2);  /* right: 30 * 2 */
     start_voice(2, 4, 2, 200, 1);  /* right: 50 */
@@ -52,7 +52,7 @@ static void voices_1_and_4_play_left_2_and_3_play_right(void)
 
 static void silent_until_started_and_after_stopped(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     expect_frames(10, 0, 0);
     start_voice(0, 0, 4, 120, 64);
     expect_frames(1, 640, 0);
@@ -63,7 +63,7 @@ static void silent_until_started_and_after_stopped(void)
 /* Amiga-style looping: PTR/LEN written after the start become the loop. */
 static void at_the_end_playback_continues_from_the_latched_loop(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     start_voice(0, 0, 2, 113, 1);                     /* bytes 0..3 once */
     paula_model_write(&paula, PAULA_VOICE(0) + PAULA_PTR, 6);
     paula_model_write(&paula, PAULA_VOICE(0) + PAULA_LEN, 1); /* then loop bytes 6..7 */
@@ -77,7 +77,7 @@ static void at_the_end_playback_continues_from_the_latched_loop(void)
 static void a_one_word_loop_of_zeros_is_silence(void)
 {
     static const int8_t smp[6] = {0, 0, 5, 6, 7, 8};
-    paula_model_reset(&paula, (const uint8_t *)smp, sizeof smp);
+    paula_model_reset(&paula, (uint8_t *)smp, sizeof smp);
     start_voice(0, 0, 3, 113, 64);
     paula_model_write(&paula, PAULA_VOICE(0) + PAULA_LEN, 1);
     int8_t expected[] = {0, 0, 5, 6, 7, 8, 0, 0, 0, 0};
@@ -87,7 +87,7 @@ static void a_one_word_loop_of_zeros_is_silence(void)
 
 static void a_new_period_takes_effect_at_the_next_sample_step(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     start_voice(0, 0, 4, 200, 1);
     expect_frames(50, 10, 0);
     paula_model_write(&paula, PAULA_VOICE(0) + PAULA_PER, 300);
@@ -98,7 +98,7 @@ static void a_new_period_takes_effect_at_the_next_sample_step(void)
 
 static void a_new_volume_takes_effect_at_the_next_sample_step(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     start_voice(0, 0, 4, 200, 1);
     expect_frames(50, 10, 0);
     paula_model_write(&paula, PAULA_VOICE(0) + PAULA_VOL, 2);
@@ -108,7 +108,7 @@ static void a_new_volume_takes_effect_at_the_next_sample_step(void)
 
 static void periods_below_113_act_as_113_and_zero_as_65536(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     start_voice(0, 0, 4, 1, 1);
     expect_frames(113, 10, 0);
     expect_frames(1, -20, 0);
@@ -121,7 +121,7 @@ static void periods_below_113_act_as_113_and_zero_as_65536(void)
 
 static void volumes_above_64_act_as_64(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     start_voice(0, 0, 4, 200, 100);  /* bit 6 set -> 64 */
     expect_frames(1, 640, 0);
     start_voice(0, 0, 4, 200, 0x85); /* bit 7 ignored -> 5 */
@@ -148,7 +148,7 @@ static const int8_t dc[2] = {100, 100};
 
 static void stereo_blend_mixes_a_quarter_of_each_side_into_the_other(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)ramp, sizeof ramp);
+    paula_model_reset(&paula, (uint8_t *)ramp, sizeof ramp);
     paula_model_write(&paula, PAULA_OPTIONS, PAULA_OPT_BLEND);
     start_voice(0, 0, 4, 200, 64);              /* left only: 640 */
     expect_frames(1, 480, 160);
@@ -159,7 +159,7 @@ static void stereo_blend_mixes_a_quarter_of_each_side_into_the_other(void)
 /* Steps a held DC input and returns the left output after n colour clocks. */
 static int32_t step_response(uint32_t options, int n)
 {
-    paula_model_reset(&paula, (const uint8_t *)dc, sizeof dc);
+    paula_model_reset(&paula, (uint8_t *)dc, sizeof dc);
     paula_model_write(&paula, PAULA_OPTIONS, options);
     start_voice(0, 0, 1, 1000, 64);              /* 100 x 64 = 6400, held */
     int32_t out = 0;
@@ -193,7 +193,7 @@ static double gain(uint32_t options, int led)
         sine8[i] = (int8_t)lround(100 * sin(2 * M_PI * i / 8));
     double re[2] = {0}, im[2] = {0};
     for (int pass = 0; pass < 2; pass++) {
-        paula_model_reset(&paula, (const uint8_t *)sine8, sizeof sine8);
+        paula_model_reset(&paula, (uint8_t *)sine8, sizeof sine8);
         paula_model_write(&paula, PAULA_OPTIONS, pass ? options : 0);
         paula_model_write(&paula, PAULA_LED_FILTER, pass ? (uint32_t)led : 0);
         start_voice(0, 0, 4, 113, 64);
@@ -231,7 +231,7 @@ static void the_led_filter_is_a_3091_hz_two_pole_low_pass(void)
 
 static void the_led_filter_passes_dc_and_follows_the_led_register(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)dc, sizeof dc);
+    paula_model_reset(&paula, (uint8_t *)dc, sizeof dc);
     paula_model_write(&paula, PAULA_LED_FILTER, 1);
     start_voice(0, 0, 1, 1000, 64);
     CHECK(paula_model_step(&paula).left < 100);  /* a step is smoothed... */
@@ -243,15 +243,34 @@ static void the_led_filter_passes_dc_and_follows_the_led_register(void)
 
 static void no_led_ignores_the_songs_led_filter_commands(void)
 {
-    paula_model_reset(&paula, (const uint8_t *)dc, sizeof dc);
+    paula_model_reset(&paula, (uint8_t *)dc, sizeof dc);
     paula_model_write(&paula, PAULA_OPTIONS, PAULA_OPT_NO_LED);
     paula_model_write(&paula, PAULA_LED_FILTER, 1);
     start_voice(0, 0, 1, 1000, 64);
     expect_frames(1, 6400, 0);
 }
 
+/* Invert loop's memory change goes through Paula, so it happens at the
+ * same moment as the tick's other writes (ADR-0009). */
+static void invert_flips_every_bit_of_one_byte(void)
+{
+    static uint8_t smp[4] = {10, 0x80, 0xFF, 3};
+    paula_model_reset(&paula, smp, sizeof smp);
+    paula_model_write(&paula, PAULA_INVERT, 1);
+    paula_model_write(&paula, PAULA_INVERT, 2);
+    paula_model_write(&paula, PAULA_INVERT, 4); /* outside memory: ignored */
+    CHECK_EQ(smp[0], 10);
+    CHECK_EQ(smp[1], 0x7F);
+    CHECK_EQ(smp[2], 0x00);
+    CHECK_EQ(smp[3], 3);
+    start_voice(0, 0, 2, 120, 1);
+    expect_frames(120, 10, 0);
+    expect_frames(120, 127, 0); /* plays the inverted byte */
+}
+
 int main(void)
 {
+    RUN(invert_flips_every_bit_of_one_byte);
     RUN(stereo_blend_mixes_a_quarter_of_each_side_into_the_other);
     RUN(the_a500_filter_is_a_4421_hz_rc_low_pass);
     RUN(without_options_the_output_is_unfiltered);

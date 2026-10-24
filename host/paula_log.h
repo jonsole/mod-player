@@ -18,11 +18,17 @@ typedef struct {
     FILE *out;
     uint32_t samples_start;  /* Paula address of the first Sample's data */
     uint32_t null_addr;      /* Paula address that means "no Sample" */
+    uint8_t *mem;            /* memory image that PAULA_INVERT changes (Paula address 0) */
+    uint32_t mem_size;
     char buf[65536];         /* this tick's writes, printed after its header */
     size_t len;
 } paula_log_t;
 
 void paula_log_init(paula_log_t *log, FILE *out, uint32_t samples_start, uint32_t null_addr);
+/* Lets PAULA_INVERT writes change mem, as Paula would; they are not printed,
+ * because pt2-clone changes memory directly. The Sample fingerprints at the
+ * end of the log compare the result. */
+void paula_log_memory(paula_log_t *log, uint8_t *mem, uint32_t mem_size);
 void paula_log_write(paula_log_t *log, uint32_t reg, uint32_t value);
 void paula_log_filter(paula_log_t *log, int on);
 

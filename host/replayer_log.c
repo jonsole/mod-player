@@ -34,6 +34,7 @@ int main(int argc, char **argv)
     static replayer_t rp;
     uint32_t null_addr = 0xFFFFFFF0u; /* never a real address in this tool */
     paula_log_init(&log, stdout, song.sample[0].offset, null_addr);
+    paula_log_memory(&log, mem, size);
     replayer_start(&rp, &song, mem, 0, null_addr, paula_log_port(&log));
     paula_log_start(&log);
     unsigned ticks = (unsigned)atoi(argv[2]);

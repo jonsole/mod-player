@@ -352,8 +352,9 @@ static void update_funk(replayer_t *r, replayer_channel_t *c)
         return;
     if (++c->n_wavestart >= c->n_loopstart + ((uint32_t)c->n_replen << 1))
         c->n_wavestart = c->n_loopstart;
-    uint8_t *p = r->mem + (c->n_wavestart - r->paula_base);
-    *p = (uint8_t)(-1 - (int8_t)*p);
+    /* ProTracker sets the byte to -1 - byte, which flips every bit. Paula
+     * does it, in step with the tick's other writes (ADR-0009). */
+    paula_write(r, PAULA_INVERT, c->n_wavestart);
 }
 
 static void funk_it(replayer_t *r, replayer_channel_t *c) /* EFx */

@@ -47,7 +47,7 @@ typedef struct {
 } paula_filter_t;
 
 typedef struct {
-    const uint8_t *mem;
+    uint8_t *mem;
     uint32_t mem_size;
     paula_voice_t voice[PAULA_VOICES];
     uint32_t options;
@@ -56,8 +56,8 @@ typedef struct {
 } paula_model_t;
 
 /* Silences all voices. Paula reads samples from mem[0..mem_size); reads
- * outside it return 0. */
-void paula_model_reset(paula_model_t *p, const uint8_t *mem, uint32_t mem_size);
+ * outside it return 0. PAULA_INVERT changes mem. */
+void paula_model_reset(paula_model_t *p, uint8_t *mem, uint32_t mem_size);
 
 void paula_model_write(paula_model_t *p, uint32_t reg, uint32_t value);
 

@@ -1,7 +1,7 @@
 #include <string.h>
 #include "paula_model.h"
 
-void paula_model_reset(paula_model_t *p, const uint8_t *mem, uint32_t mem_size)
+void paula_model_reset(paula_model_t *p, uint8_t *mem, uint32_t mem_size)
 {
     memset(p, 0, sizeof *p);
     p->mem = mem;
@@ -48,6 +48,11 @@ static void start_voice(paula_model_t *p, paula_voice_t *v)
 
 void paula_model_write(paula_model_t *p, uint32_t reg, uint32_t value)
 {
+    if (reg == PAULA_INVERT) {
+        if (value < p->mem_size)
+            p->mem[value] = (uint8_t)~p->mem[value];
+        return;
+    }
     if (reg == PAULA_OPTIONS) {
         p->options = value;
         return;
