@@ -3,7 +3,7 @@
 A standalone player for Amiga ProTracker MOD files on the Scarab miniSpartan6+ (XC6SLX25) FPGA board. A RISC-V soft CPU runs a ProTracker 2.3-accurate Replayer and drives a hardware recreation of the Amiga's Paula audio chip.
 
 - Design: [spec issue](https://github.com/jonsole/mod-player/issues/1), `GLOSSARY.md`, decisions in `docs/adr/`.
-- Status: phase 1 (PC reference) done; phase 2 (full-chip simulation) in progress.
+- Status: phase 1 (PC reference) and phase 2 (full-chip simulation) done; the board build is ready to try with Xilinx ISE, see **[docs/board.md](docs/board.md)**. The story so far: [docs/engineering-notes.md](docs/engineering-notes.md).
 
 ## Layout
 
@@ -11,13 +11,15 @@ A standalone player for Amiga ProTracker MOD files on the Scarab miniSpartan6+ (
 - `host/`: PC-only code: the Paula C model, WAV writer and `render` command.
 - `tools/modgen.py`: builds MOD files for tests; run it to write the generated test Songs.
 - `tools/modplayer.py`: the PC side of the serial protocol (`docs/protocol.md`): load, play, stop, pause, info.
-- `hw/rtl/`: the FPGA design in Verilog-2001 (Paula so far).
+- `hw/rtl/`: the FPGA design in Verilog-2001: SoC, Paula, SDRAM controller, serial, delta-sigma DAC.
+- `hw/board/minispartan6/`: board top level, pin constraints and the ISE build.
+- `firmware/`: the soft CPU's firmware (command loop, player, memory test, start-up).
 - `hw/sim/`: Verilator testbenches.
 - `tests/`: unit tests (C), render-command tests, and the pt2-clone oracle (`tests/oracle/`, test-only, BSD-3).
 
 ## Tests and tools
 
-Needs a C compiler, `make`, Python 3 and Verilator (`apt install verilator`). `make test` runs everything, including the Verilog Paula against the C model (`make hw-test` alone).
+Needs a C compiler, `make`, Python 3, Verilator and the RISC-V GCC toolchain (`apt install verilator gcc-riscv64-unknown-elf`); Yosys for `make synth-check`. `make test` runs everything (about two minutes).
 
 ```sh
 make test                                   # build and run every test

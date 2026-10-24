@@ -35,6 +35,7 @@ struct SdramModel {
     int failures = 0;
     uint32_t rng = 12345;
     uint16_t dq_in = 0;
+    bool driving = false;                 // the chip is outputting read data this cycle
     long long reads = 0, writes = 0, refreshes = 0;
 
     enum { POWER_UP, PRECHARGED, REFRESHED, READY } phase = POWER_UP;
@@ -75,6 +76,7 @@ struct SdramModel {
             beats.erase(beats.begin() + (long)i);
         }
         if (reading && dq_oe) fail("bus contention: controller drives DQ during read data");
+        driving = reading;
 
         if (cs_n) return;
         int cmd = (ras_n << 2) | (cas_n << 1) | we_n;

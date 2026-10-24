@@ -11,7 +11,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test soc-test dsm-test fullchip-test firmware clean
+.PHONY: all test hw-test soc-test dsm-test fullchip-test board-test synth-check firmware clean
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
 $(BUILD):
@@ -31,7 +31,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test soc-test dsm-test fullchip-test
+test: $(UNIT_TESTS) all hw-test soc-test dsm-test fullchip-test board-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command and pt2-clone oracle"; python3 -m unittest tests.test_render tests.test_oracle
 
@@ -144,3 +144,32 @@ fullchip-test: $(BUILD)/soc_tb_fast $(BUILD)/soc_tb
 		grep -E "frames match|FAIL" $(BUILD)/fullchip_results; \
 		echo "Full chip: $$(grep -c '^.*ok: ' $(BUILD)/fullchip_results) of $$(wc -l < $(BUILD)/fullchip_cmds) runs match the PC reference"; \
 		exit $$status
+
+# ---- board top level ---------------------------------------------------------
+BOARD_RTL := hw/board/minispartan6/top.v hw/board/minispartan6/sim_primitives.v hw/rtl/dac_dsm.v $(SOC_RTL)
+
+$(BUILD)/board_tb: $(BOARD_RTL) hw/sim/board_wrap.v hw/sim/board_tb.cpp hw/sim/sdram_model.h $(BUILD)/fw/firmware0.hex | $(BUILD)
+	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module board_wrap \
+		+define+FIRMWARE='"$(CURDIR)/$(BUILD)/fw/firmware"' hw/sim/board_wrap.v $(BOARD_RTL) \
+		$(CURDIR)/hw/sim/board_tb.cpp -CFLAGS "-O2 -I$(CURDIR)/hw/sim" \
+		-Mdir $(BUILD)/obj_board -o board_tb >$(BUILD)/board_tb.log 2>&1 || (cat $(BUILD)/board_tb.log; false)
+	cp $(BUILD)/obj_board/board_tb $@
+
+# Boots the board top level, plays a left-only Song, checks the audio pins
+board-test: $(BUILD)/board_tb
+	@python3 -c "import sys; sys.path.insert(0, 'tools'); import modgen; s = modgen.Song('left only'); \
+		s.sample(1, modgen.square_cycle(32) * 4, volume=64, loop=(0, 128)); s.note(0, 0, 0, period=428, sample=1); \
+		open('$(BUILD)/left-only.mod', 'wb').write(s.build())"
+	$(BUILD)/board_tb $(BUILD)/left-only.mod
+
+# Synthesis check with Yosys for Spartan-6 (a stand-in for XST: catches
+# constructs that don't synthesise and reports resource use)
+synth-check: $(BUILD)/fw/firmware0.hex
+	@echo "read_verilog $(filter-out %sim_primitives.v,$(BOARD_RTL))" > $(BUILD)/synth.ys
+	@echo 'chparam -set FIRMWARE "$(BUILD)/fw/firmware" top' >> $(BUILD)/synth.ys
+	@echo "synth_xilinx -family xc6s -top top" >> $(BUILD)/synth.ys
+	@echo "stat" >> $(BUILD)/synth.ys
+	yosys -q -l $(BUILD)/yosys.log -s $(BUILD)/synth.ys >/dev/null
+	@echo "Spartan-6 resources (Yosys estimate; the XC6SLX25 has 15032 LUTs, 30064 flip-flops,"
+	@echo "38 DSP48A1 and 52 RAMB16):"
+	@python3 tools/yosys_stats.py $(BUILD)/yosys.log
