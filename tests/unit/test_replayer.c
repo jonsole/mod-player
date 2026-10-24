@@ -212,8 +212,72 @@ static void after_the_last_row_play_moves_to_the_next_position_and_wraps(void)
     CHECK_EQ(seen[2], 214);
 }
 
+/* Ticks until `ended` is first set (0 if not within max). */
+static int ticks_until_end(int max)
+{
+    for (int t = 1; t <= max; t++) {
+        replayer_tick(&rp);
+        if (rp.ended)
+            return t;
+    }
+    return 0;
+}
+
+static void a_one_pattern_song_ends_after_64_rows(void)
+{
+    one_note_song();
+    start();
+    CHECK_EQ(ticks_until_end(2000), 64 * 6);
+}
+
+static void a_song_that_jumps_back_ends_when_a_row_repeats(void)
+{
+    mb_init(&mb, 2);
+    uint8_t order[3] = {0, 1, 0};
+    mb_positions(&mb, 3, order);
+    mb_note(&mb, 1, 63, 0, 0, 0, 0xB, 0x00); /* Position 1 jumps back to Position 0 */
+    start();
+    CHECK_EQ(ticks_until_end(2000), 2 * 64 * 6);
+}
+
+static void a_pattern_loop_is_not_the_end(void)
+{
+    one_note_song();
+    mb_note(&mb, 0, 1, 1, 0, 0, 0xE, 0x60);
+    mb_note(&mb, 0, 3, 1, 0, 0, 0xE, 0x61); /* rows 1-3 play twice */
+    start();
+    CHECK_EQ(ticks_until_end(2000), (64 + 3) * 6);
+}
+
+static void the_end_is_reported_once_per_play_through_and_play_continues(void)
+{
+    one_note_song();
+    start();
+    CHECK_EQ(ticks_until_end(2000), 64 * 6);
+    rp.ended = 0; /* a looping player may clear it to hear about the next pass */
+    CHECK_EQ(ticks_until_end(2000), 64 * 6);
+}
+
+static void f00_stops_the_song(void)
+{
+    one_note_song();
+    mb_note(&mb, 0, 2, 1, 0, 0, 0xF, 0x00);
+    start();
+    for (int t = 1; t <= 13; t++)
+        replayer_tick(&rp);
+    CHECK_EQ(rp.stopped, 1);
+    nlog = 0;
+    replayer_tick(&rp);
+    CHECK_EQ(nlog, 0);
+}
+
 int main(void)
 {
+    RUN(a_one_pattern_song_ends_after_64_rows);
+    RUN(a_song_that_jumps_back_ends_when_a_row_repeats);
+    RUN(a_pattern_loop_is_not_the_end);
+    RUN(the_end_is_reported_once_per_play_through_and_play_continues);
+    RUN(f00_stops_the_song);
     RUN(starting_silences_every_voice);
     RUN(the_first_tick_triggers_the_first_rows_notes);
     RUN(ticks_between_rows_only_refresh_volumes);

@@ -43,7 +43,7 @@ class MatchesPt2Clone(unittest.TestCase):
         for name, make in modgen.GENERATED.items():
             with self.subTest(song=name):
                 theirs, ours = logs_for(make())
-                self.assertGreater(len(theirs), int(TICKS), "pt2-clone log too short")
+                self.assertGreater(len(theirs), 20, "pt2-clone log too short")
                 diff = first_difference(theirs, ours)
                 self.assertIsNone(diff, "\n%s: %s" % (name, diff))
 

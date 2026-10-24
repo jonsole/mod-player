@@ -18,7 +18,7 @@ Needs a C compiler, `make` and Python 3.
 
 ```sh
 make test                                   # build and run every test
-build/render song.mod song.wav --seconds 60 # render any 4-channel MOD file
+build/render song.mod song.wav --play-once  # render a whole Song (or --seconds N)
 python3 tools/modgen.py build/songs         # write the generated test Songs
 
 # Compare our Replayer with pt2-clone's, Paula write by Paula write:

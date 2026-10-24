@@ -223,6 +223,62 @@ def finetune_song():
     return effect_song("finetune", cells)
 
 
+def _marker(pattern, row, period):
+    """A note on channel 4 so each Pattern/Row is recognisable in the log."""
+    return (pattern, row, 3, period, 1, 0, 0)
+
+
+def position_jump_song():
+    cells = [_marker(p, 0, per) for p, per in ((0, C1), (1, D1), (2, E1), (3, F1), (4, G1))]
+    cells += [(0, 4, 0, C2, 2, 0xB, 3),                       # jump to Position 3
+              (3, 2, 0, 0, 0, 0xD, 0x12),                     # break to row 12 (decimal)
+              (1, 10, 0, 0, 0, 0xD, 0x70),                    # break past 63 -> row 0
+              (2, 20, 0, 0, 0, 0xB, 1), (2, 20, 1, 0, 0, 0xD, 0x05),  # B then D, same row
+              (4, 5, 1, 0, 0, 0xD, 0x30), (4, 5, 0, 0, 0, 0xB, 2),    # D then B
+              (4, 63, 0, 0, 0, 0xD, 0x63),                    # break on the last row
+              (1, 30, 2, 0, 0, 0xB, 0x7F)]                    # past the end -> Position 0
+    return effect_song("position jump", cells, positions=(0, 3, 1, 4, 2, 1))
+
+
+def pattern_loop_song():
+    cells = [_marker(0, r, C2 + r) for r in range(0, 64, 4)]
+    cells += [(0, 2, 0, 0, 0, 0xE, 0x60), (0, 5, 0, 0, 0, 0xE, 0x62),      # loop rows 2-5 x2
+              (0, 8, 1, 0, 0, 0xE, 0x60), (0, 9, 2, 0, 0, 0xE, 0x60),      # nested, two channels
+              (0, 11, 2, 0, 0, 0xE, 0x61), (0, 13, 1, 0, 0, 0xE, 0x62),
+              (0, 16, 0, 0, 0, 0xE, 0x63),                                 # loop on one row
+              (0, 16, 1, 0, 0, 0xE, 0x60),
+              (0, 20, 0, 0, 0, 0xE, 0x61),                                 # back to last E60
+              (0, 30, 2, 0, 0, 0xE, 0x60), (0, 31, 2, 0, 0, 0xE, 0x61),
+              (0, 31, 1, 0, 0, 0xD, 0x40)]                                 # loop + break
+    cells += [(1, 3, 0, 0, 0, 0xE, 0x62), (1, 6, 1, 0, 0, 0xE, 0x60),      # no E60 yet
+              (1, 7, 1, 0, 0, 0xE, 0x61)]
+    return effect_song("pattern loop", cells, positions=(0, 1))
+
+
+def pattern_delay_song():
+    cells = [(0, 0, 0, C2, 1, 0, 0), (0, 0, 1, E2, 2, 0xC, 20)]
+    cells += [(0, 2, 0, 0, 0, 0xE, 0xE2), (0, 2, 1, 0, 0, 0xE, 0xA4),      # fine slide repeats
+              (0, 4, 0, G2, 3, 0xE, 0xE1), (0, 4, 1, 0, 0, 0xA, 0x02),     # note + slide in delay
+              (0, 6, 0, 0, 0, 0xE, 0xE3), (0, 6, 2, 0, 0, 0xE, 0xE1),      # two delays, same row
+              (0, 8, 0, 0, 0, 0xE, 0x60), (0, 9, 0, 0, 0, 0xE, 0x61),
+              (0, 9, 1, 0, 0, 0xE, 0xE2),                                  # delay on a loop row
+              (0, 12, 0, 0, 0, 0xE, 0xEF), (0, 12, 1, C2, 2, 0xD, 0x00),   # delay + break
+              (0, 13, 0, 0, 0, 0xE, 0xE0)]
+    cells += [(1, 1, 0, C3, 1, 0xE, 0xE1), (1, 1, 1, 0, 0, 0xE, 0x91), (1, 1, 2, C2, 2, 0xE, 0xD2)]
+    return effect_song("pattern delay", cells, positions=(0, 1))
+
+
+def tempo_song():
+    cells = [(0, r, 0, C2, 1, 0, 0) for r in range(0, 64, 2)]
+    cells += [(0, 2, 1, 0, 0, 0xF, 3), (0, 4, 1, 0, 0, 0xF, 0x20),        # speed, then CIA 32 BPM
+              (0, 5, 1, 0, 0, 0xF, 0xFF), (0, 6, 1, 0, 0, 0xF, 0x7D),
+              (0, 8, 1, 0, 0, 0xF, 1), (0, 8, 2, 0, 0, 0xF, 150),          # speed + tempo, one row
+              (0, 12, 1, 0, 0, 0xF, 31), (0, 13, 1, 0, 0, 0xF, 6),
+              (0, 14, 1, 0, 0, 0xF, 0x40), (0, 14, 2, 0, 0, 0xF, 0x50),    # two tempos: last wins
+              (0, 20, 3, 0, 0, 0xF, 0x00)]                                  # stop
+    return effect_song("tempo", cells)
+
+
 GENERATED = {
     "plain-notes.mod": plain_notes_song,
     "volume-set.mod": volume_set_song,
@@ -234,6 +290,10 @@ GENERATED = {
     "tone-portamento.mod": tone_portamento_song,
     "vibrato.mod": vibrato_song,
     "finetune.mod": finetune_song,
+    "position-jump.mod": position_jump_song,
+    "pattern-loop.mod": pattern_loop_song,
+    "pattern-delay.mod": pattern_delay_song,
+    "tempo.mod": tempo_song,
 }
 
 

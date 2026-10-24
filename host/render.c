@@ -1,7 +1,10 @@
 /* render: plays a MOD file through the Replayer and the Paula C model and
  * writes the result as a 48 kHz stereo WAV file.
  *
- *   render in.mod out.wav [--seconds N]
+ *   render in.mod out.wav [--seconds N] [--play-once]
+ *
+ * Renders 30 seconds by default. --play-once stops at the end of the Song
+ * (or at F00), whichever comes first with --seconds.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +19,7 @@
 
 static int usage(void)
 {
-    fprintf(stderr, "usage: render in.mod out.wav [--seconds N]\n");
+    fprintf(stderr, "usage: render in.mod out.wav [--seconds N] [--play-once]\n");
     return 2;
 }
 
@@ -55,14 +58,20 @@ static int16_t to_pcm(int64_t sum, uint32_t count)
 
 int main(int argc, char **argv)
 {
-    if (argc != 3 && argc != 5)
+    if (argc < 3)
         return usage();
-    double seconds = 30;
-    if (argc == 5) {
-        if (strcmp(argv[3], "--seconds") != 0)
+    double seconds = -1;
+    int play_once = 0;
+    for (int i = 3; i < argc; i++) {
+        if (strcmp(argv[i], "--seconds") == 0 && i + 1 < argc)
+            seconds = atof(argv[++i]);
+        else if (strcmp(argv[i], "--play-once") == 0)
+            play_once = 1;
+        else
             return usage();
-        seconds = atof(argv[4]);
     }
+    if (seconds < 0)
+        seconds = play_once ? 3600 : 30;
 
     uint32_t size, null_addr;
     uint8_t *mem = read_song_memory(argv[1], &size, &null_addr);
@@ -90,9 +99,14 @@ int main(int argc, char **argv)
     uint32_t frames = (uint32_t)(seconds * OUT_RATE);
     uint32_t tick_left = 0, phase = 0, count = 0;
     int64_t sum_l = 0, sum_r = 0;
+    int last_tick = 0;
     while (wav.frames < frames) {
-        if (tick_left == 0)
+        if (tick_left == 0) {
+            if (last_tick)
+                break;
             tick_left = replayer_tick(&rp);
+            last_tick = play_once && (rp.ended || rp.stopped);
+        }
         tick_left--;
         paula_frame_t f = paula_model_step(&paula);
         sum_l += f.left;

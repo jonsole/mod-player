@@ -275,10 +275,68 @@ static void set_vibrato_control(replayer_channel_t *c) /* E4x */
 static void set_speed(replayer_t *r, replayer_channel_t *c) /* Fxx */
 {
     uint8_t param = c->n_cmd & 0xFF;
-    if (param > 0 && param < 32) {
+    if (param == 0) {
+        r->stopped = 1;
+    } else if (param < 32) {
         r->speed = param;
         r->tick = 0;
+    } else {
+        r->cia_set_bpm = param; /* the CIA takes its new value at the next tick */
     }
+}
+
+static void position_jump(replayer_t *r, replayer_channel_t *c) /* Bxx */
+{
+    r->pos = (uint8_t)((c->n_cmd & 0xFF) - 1); /* B00 gives 255: the next Position is 0 */
+    r->pbreak_pos = 0;
+    r->pos_jump = 1;
+}
+
+static void pattern_break(replayer_t *r, replayer_channel_t *c) /* Dxx, decimal */
+{
+    unsigned row = ((c->n_cmd >> 4) & 0xF) * 10 + (c->n_cmd & 0xF);
+    r->pbreak_pos = (uint8_t)(row > 63 ? 0 : row);
+    r->pos_jump = 1;
+}
+
+static int visited(const replayer_t *r, unsigned pos, unsigned row)
+{
+    unsigned i = pos * MOD_ROWS + row;
+    return (r->visited[i >> 3] >> (i & 7)) & 1;
+}
+
+static void set_visited(replayer_t *r, unsigned pos, unsigned row, int on)
+{
+    unsigned i = pos * MOD_ROWS + row;
+    if (on)
+        r->visited[i >> 3] |= (uint8_t)(1u << (i & 7));
+    else
+        r->visited[i >> 3] &= (uint8_t)~(1u << (i & 7));
+}
+
+static void jump_loop(replayer_t *r, replayer_channel_t *c) /* E6x */
+{
+    if (r->tick != 0)
+        return;
+    if ((c->n_cmd & 0xF) == 0) {
+        c->n_pattpos = r->row;
+        return;
+    }
+    if (c->n_loopcount == 0)
+        c->n_loopcount = c->n_cmd & 0xF;
+    else if (--c->n_loopcount == 0)
+        return;
+    r->pbreak_pos = c->n_pattpos;
+    r->pbreak_flag = 1;
+    /* the looped Rows will play again: not the end of the Song */
+    for (unsigned row = r->pbreak_pos; row <= r->row; row++)
+        set_visited(r, r->pos, row, 0);
+}
+
+static void pattern_delay(replayer_t *r, replayer_channel_t *c) /* EEx */
+{
+    if (r->tick == 0 && r->patt_del_time2 == 0)
+        r->patt_del_time = (uint8_t)((c->n_cmd & 0xF) + 1);
 }
 
 /* ---- dispatch, in ProTracker's order ------------------------------------- */
@@ -299,8 +357,14 @@ static void e_commands(replayer_t *r, int v)
     case 0x4:
         set_vibrato_control(c);
         return;
+    case 0x6:
+        jump_loop(r, c);
+        return;
     case 0x7:
         set_tremolo_control(c);
+        return;
+    case 0xE:
+        pattern_delay(r, c);
         return;
     case 0xA:
         volume_fine_up(r, c);
@@ -319,8 +383,12 @@ static void check_more_effects(replayer_t *r, int v)
     replayer_channel_t *c = &r->ch[v];
     switch ((c->n_cmd >> 8) & 0xF) {
     case 0x9:
+        return;
     case 0xB:
+        position_jump(r, c);
+        return;
     case 0xD:
+        pattern_break(r, c);
         return;
     case 0xE:
         e_commands(r, v);
@@ -470,14 +538,22 @@ static void set_dma(replayer_t *r)
     }
 }
 
+static uint32_t tick_length(const replayer_t *r)
+{
+    /* The CIA timer fires on underflow, one count after reaching zero. */
+    return (CIA_TIMER_BASE / r->bpm + 1) * CCK_PER_CIA_TICK;
+}
+
 static void next_position(replayer_t *r)
 {
     r->row = r->pbreak_pos;
     r->pbreak_pos = 0;
     r->pos_jump = 0;
     r->pos = (uint8_t)((r->pos + 1) & 127);
-    if (r->pos >= r->song->length)
+    if (r->pos >= r->song->length) {
         r->pos = 0;
+        r->wrapped = 1;
+    }
 }
 
 void replayer_start(replayer_t *r, const mod_song_t *song, uint8_t *mem, uint32_t paula_base,
@@ -504,12 +580,19 @@ void replayer_start(replayer_t *r, const mod_song_t *song, uint8_t *mem, uint32_
 
 uint32_t replayer_tick(replayer_t *r)
 {
+    if (r->stopped)
+        return tick_length(r);
+    if (r->cia_set_bpm) {
+        r->bpm = r->cia_set_bpm;
+        r->cia_set_bpm = 0;
+    }
     if (++r->tick >= r->speed) {
         r->tick = 0;
         if (r->patt_del_time2 == 0) {
             r->dmacon_temp = 0;
             r->play_pos = r->pos;
             r->play_row = r->row;
+            set_visited(r, r->pos, r->row, 1);
             const uint8_t *row = current_row(r);
             for (int v = 0; v < MOD_CHANNELS; v++) {
                 play_voice(r, v, row + v * 4);
@@ -521,6 +604,17 @@ uint32_t replayer_tick(replayer_t *r)
                 check_effects(r, v);
         }
         r->row++;
+        if (r->patt_del_time) {
+            r->patt_del_time2 = r->patt_del_time;
+            r->patt_del_time = 0;
+        }
+        if (r->patt_del_time2 && --r->patt_del_time2)
+            r->row--; /* pattern delay: repeat this row */
+        if (r->pbreak_flag) {
+            r->row = r->pbreak_pos;
+            r->pbreak_pos = 0;
+            r->pbreak_flag = 0;
+        }
         if (r->row >= MOD_ROWS || r->pos_jump)
             next_position(r);
     } else {
@@ -529,6 +623,13 @@ uint32_t replayer_tick(replayer_t *r)
         if (r->pos_jump)
             next_position(r);
     }
-    /* The CIA timer fires on underflow, one count after reaching zero. */
-    return (CIA_TIMER_BASE / r->bpm + 1) * CCK_PER_CIA_TICK;
+    /* End of Song: the next tick would read a Row already played. */
+    if (r->patt_del_time2 == 0 && r->tick == r->speed - 1 &&
+        (visited(r, r->pos, r->row) || r->wrapped)) {
+        r->ended = 1;
+        r->wrapped = 0;
+        for (unsigned i = 0; i < sizeof r->visited; i++) /* start the next pass afresh */
+            r->visited[i] = 0;
+    }
+    return tick_length(r);
 }

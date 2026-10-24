@@ -67,6 +67,25 @@ class RenderCommand(unittest.TestCase):
         _, left, right = read_wav(wav)
         self.assertEqual(set(left) | set(right), {0})
 
+    def test_play_once_stops_at_the_end_of_the_song(self):
+        # One Pattern at speed 6 and 125 BPM: 384 ticks of 70940 colour clocks.
+        song = modgen.Song()
+        song.sample(1, modgen.sine_cycle(32), volume=64, loop=(0, 32))
+        song.note(0, 0, 0, period=428, sample=1)
+        result, wav = render(song.build(), "--play-once")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        _, left, _ = read_wav(wav)
+        expected = 384 * 70940 * 48000 / PAL_CCK_HZ
+        self.assertAlmostEqual(len(left), expected, delta=1)
+
+    def test_play_once_stops_at_f00(self):
+        song = modgen.Song()
+        song.note(0, 2, 0, effect=0xF, param=0)   # read on tick 13, which is the last
+        result, wav = render(song.build(), "--play-once")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        _, left, _ = read_wav(wav)
+        self.assertAlmostEqual(len(left), 13 * 70940 * 48000 / PAL_CCK_HZ, delta=1)
+
     def test_rejects_mod_files_with_more_than_four_channels(self):
         result, _ = render(modgen.Song(tag=b"8CHN").build())
         self.assertNotEqual(result.returncode, 0)

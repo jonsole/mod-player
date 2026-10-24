@@ -37,7 +37,7 @@ int main(int argc, char **argv)
     replayer_start(&rp, &song, mem, 0, null_addr, paula_log_port(&log));
     paula_log_start(&log);
     unsigned ticks = (unsigned)atoi(argv[2]);
-    for (unsigned t = 1; t <= ticks; t++) {
+    for (unsigned t = 1; t <= ticks && !rp.stopped; t++) {
         uint32_t cck = replayer_tick(&rp);
         paula_log_tick(&log, t, rp.play_pos, rp.play_row, rp.bpm, cck);
     }
