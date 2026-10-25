@@ -121,6 +121,64 @@ static void cmd_flash_id(void)
     serial_puts("\r\n");
 }
 
+/* Flash writes are staged in the top half of SDRAM, clear of any Song. */
+#define FLASH_STAGE ((uint8_t *)(SDRAM_BASE + SDRAM_SIZE / 2))
+
+static void cmd_flash_write(void)
+{
+    uint32_t addr, size, crc_sent;
+    if (get_u32(&addr) < 0 || get_u32(&size) < 0) {
+        reply_err("timeout");
+        return;
+    }
+    player_stop();
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < size; i++) {
+        int b = serial_getc_timeout(TIMEOUT_US);
+        if (b < 0) {
+            reply_err("timeout");
+            return;
+        }
+        if (i < FLASH_SIZE)
+            FLASH_STAGE[i] = (uint8_t)b;
+        crc = crc32_update(crc, (uint8_t)b);
+    }
+    if (get_u32(&crc_sent) < 0) {
+        reply_err("timeout");
+        return;
+    }
+    if (~crc != crc_sent)
+        reply_err("checksum mismatch: transfer corrupted");
+    else if (addr % FLASH_SECTOR != 0)
+        reply_err("flash address must be a multiple of 4096");
+    else if (size > FLASH_SIZE || addr > FLASH_SIZE - size)
+        reply_err("past the end of the flash");
+    else {
+        flash_erase(addr, size);
+        flash_program(addr, FLASH_STAGE, size);
+        if (flash_crc(addr, size) != crc_sent)
+            reply_err("flash doesn't read back as written");
+        else
+            serial_puts("OK written\r\n");
+    }
+}
+
+static void cmd_flash_crc(void)
+{
+    uint32_t addr, size;
+    if (get_u32(&addr) < 0 || get_u32(&size) < 0) {
+        reply_err("timeout");
+        return;
+    }
+    if (size > FLASH_SIZE || addr > FLASH_SIZE - size) {
+        reply_err("past the end of the flash");
+        return;
+    }
+    serial_puts("OK crc ");
+    serial_put_hex(flash_crc(addr, size));
+    serial_puts("\r\n");
+}
+
 static void command(int c)
 {
     uint32_t size;
@@ -157,6 +215,12 @@ static void command(int c)
         break;
     case 'F':
         cmd_flash_id();
+        break;
+    case 'W':
+        cmd_flash_write();
+        break;
+    case 'C':
+        cmd_flash_crc();
         break;
     default:
         reply_err("unknown command");

@@ -35,7 +35,7 @@ $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 test: $(UNIT_TESTS) all hw-test flash-model-test soc-test dsm-test fullchip-test board-test firmware-check \
       resampler-test hdmi-test hdmi-chain-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
-	@echo "== render command and pt2-clone oracle"; python3 -m unittest tests.test_render tests.test_oracle
+	@echo "== render command, pt2-clone oracle, PC script"; python3 -m unittest tests.test_render tests.test_oracle tests.test_modplayer
 
 clean:
 	rm -rf $(BUILD)

@@ -5,6 +5,7 @@
 #   make            # -> build/top.bit (firmware built into the block RAM)
 #   make prog       # load it into the FPGA over JTAG with openFPGALoader
 #   make flash      # write it to the SPI flash so it loads at power-on
+#                   # (through the firmware over serial: PORT=/dev/ttyUSB1)
 #
 # On Windows, use build.bat instead (same steps, no make or RISC-V compiler).
 #
@@ -77,13 +78,18 @@ $(BUILD)/top.bit: $(BUILD)/top.ncd
 	cd $(BUILD) && bitgen -w -g StartUpClk:CClk -g CRC:Enable top.ncd top.bit
 
 # openFPGALoader knows this board: it drives the FT2232H's first channel as
-# JTAG, and for the flash loads its own JTAG-to-SPI bridge into the FPGA first.
-# (xc3sprog works too: xc3sprog -c ftdi build/top.bit)
+# JTAG. (xc3sprog works too: xc3sprog -c ftdi build/top.bit)
 prog: $(BUILD)/top.bit
 	openFPGALoader -b minispartan6 $(BUILD)/top.bit
 
+# openFPGALoader can't write this board's flash (docs/board.md, SPI flash), so
+# load the image, let its firmware boot, and have the firmware write the
+# flash over serial. PORT is the board's serial port.
+PORT ?= /dev/ttyUSB1
 flash: $(BUILD)/top.bit
-	openFPGALoader -b minispartan6 -f $(BUILD)/top.bit
+	openFPGALoader -b minispartan6 $(BUILD)/top.bit
+	sleep 2
+	python3 $(ROOT)/tools/modplayer.py --port $(PORT) flash-write $(BUILD)/top.bit
 
 $(BUILD):
 	mkdir -p $@

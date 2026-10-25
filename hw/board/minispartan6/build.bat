@@ -4,9 +4,10 @@ rem Windows: the same steps as the Makefile next to it. From a Command Prompt:
 rem
 rem   build.bat          build build\top.bit
 rem   build.bat prog     build, then load it into the FPGA (lost at power-off)
-rem   build.bat flash    build, then write it to the SPI flash (loads at power-on)
+rem   build.bat flash    explains how to write the SPI flash (loads at power-on): the
+rem                      firmware does it over serial (docs\board.md, SPI flash)
 rem   build.bat hdmi     the same with HDMI output (ADR-0010), in build-hdmi\top.bit;
-rem                      also build.bat hdmi prog, build.bat hdmi flash
+rem                      also build.bat hdmi prog
 rem
 rem ISE is looked for in D:\Xilinx\14.7\ISE_DS, then C:\Xilinx\14.7\ISE_DS; set
 rem ISE_DIR to use another folder. prog and flash need openFPGALoader on the
@@ -111,7 +112,13 @@ if /i "%ACTION%"=="prog" (
   openFPGALoader -b minispartan6 top.bit || goto fail
 )
 if /i "%ACTION%"=="flash" (
-  openFPGALoader -b minispartan6 -f top.bit || goto fail
+  rem openFPGALoader -f can't reach this board's flash (docs\board.md, SPI flash):
+  rem the firmware writes it instead, over the serial port.
+  echo openFPGALoader can't write this board's flash. Load the image, then write it with
+  echo the firmware over serial:
+  echo   build.bat [hdmi] prog
+  echo   py tools\modplayer.py --port COMn flash-write %HERE%%OUT%\top.bit
+  exit /b 1
 )
 exit /b 0
 

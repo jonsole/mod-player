@@ -14,7 +14,7 @@ Brought up on a real board on 2026-10-25 (Windows 11, ISE 14.7): it builds, boot
 1. **Build.** Open a Command Prompt in `hw\board\minispartan6` and run `build.bat`. It finds ISE in `D:\Xilinx\14.7\ISE_DS` or `C:\Xilinx\14.7\ISE_DS` (or set `ISE_DIR` to the folder holding `settings64.bat`), runs XST, ngdbuild, map, par, trce and bitgen, and writes `build\top.bit`. A build takes a few minutes.
 2. **Install openFPGALoader.** The simplest route is MSYS2 (https://www.msys2.org): in its UCRT64 shell, `pacman -S mingw-w64-ucrt-x86_64-openFPGALoader`, then add `C:\msys64\ucrt64\bin` to the Windows PATH.
 3. **Give the JTAG channel a USB driver.** Windows binds both FT2232H channels to FTDI's serial driver; openFPGALoader needs the first one on WinUSB. Run Zadig (https://zadig.akeo.ie), tick *Options > List All Devices*, pick the board's **Interface 0** and install **WinUSB**. Leave **Interface 1** alone: it stays the COM port the player talks over.
-4. **Program.** `build.bat prog` loads the FPGA (lost at power-off); `build.bat flash` writes the SPI flash so it loads at power-on.
+4. **Program.** `build.bat prog` loads the FPGA (lost at power-off). To have it load at power-on, write it to the SPI flash with `modplayer.py flash-write` (see SPI flash below).
 
 ### ISE 14.7 on Windows 10/11
 
@@ -67,7 +67,7 @@ Changing the firmware means re-running the ISE build, because the firmware lives
 
 The HDMI build adds 640×480 at 60 Hz output on the HDMI connector (J3) with the Song's sound as 48 kHz stereo. The picture is a plain blue screen for now; a status screen is planned. The audio jack keeps working at the same time. How it works is in ADR-0010.
 
-- Windows: `build.bat hdmi` (or `build.bat hdmi prog` / `build.bat hdmi flash`). The image goes to `build-hdmi\top.bit`, so the plain build in `build\` is left alone.
+- Windows: `build.bat hdmi` (or `build.bat hdmi prog`; to keep it at power-on, see SPI flash below). The image goes to `build-hdmi\top.bit`, so the plain build in `build\` is left alone.
 - Linux: `make HDMI=1` (and `make HDMI=1 prog`), into `build-hdmi/`.
 
 Use it as above, with the TV's or monitor's speakers instead of the jack. HDMI sound is about 0.7 ms behind the jack, and silence goes out whenever no Song is playing.
@@ -82,7 +82,16 @@ If the screen stays black or says "no signal":
 
 The board's configuration flash is a Macronix MX25L6406 (8 MB). `python3 tools/modplayer.py --port COM7 flash-id` asks the firmware to read its JEDEC ID through the SoC's own SPI master (pins T3, R11, T10, P10), and prints `OK flash c2 20 17`. That was first done on 2026-10-25 (issue #17).
 
-`build.bat flash` / `make flash` (openFPGALoader `-f`) don't work on this board yet. openFPGALoader has no SPI-over-JTAG bridge for the XC6SLX25 in FTG256. One built with ISE from openFPGALoader's own source (`xilinx_spiOverJtag.v`, `constr_xc6s_ftg256.ucf`) loads and answers, but reads the flash's ID as all 1s or all 0s, although our own design reads it fine on the same pins. Writing the FPGA image to flash through our firmware instead is issue #18.
+**To make an image start at power-on**, write it to flash through the running firmware (issue #18):
+
+```sh
+build.bat hdmi prog                                              # load it over JTAG first
+python3 tools/modplayer.py --port COM7 flash-write hw/board/minispartan6/build-hdmi/top.bit
+```
+
+This takes about 30 seconds for an 800 KB image, and the firmware reads it back and checks it. The board's mode pins are set to boot from SPI flash, so the image loads at the next power-on. To load it straight away, run `openFPGALoader -b minispartan6 -r`, which makes the FPGA reconfigure from flash. Any image with the current firmware can write any other image, so you can load the plain build and write the HDMI one, or the other way round.
+
+`build.bat flash` / `make flash` (openFPGALoader `-f`) don't work on this board. openFPGALoader has no SPI-over-JTAG bridge for the XC6SLX25 in FTG256. One built with ISE from openFPGALoader's own source (`xilinx_spiOverJtag.v`, `constr_xc6s_ftg256.ucf`) loads and answers, but reads the flash's ID as all 1s or all 0s, although our own design reads it fine on the same pins.
 
 ## If it doesn't work
 
