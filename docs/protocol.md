@@ -13,5 +13,6 @@ Every command is one byte, sometimes followed by binary arguments (little-endian
 | Stop | `S`: stop and silence | `OK` |
 | Pause | `U`: pause or resume | `OK paused` / `OK playing` |
 | Info | `I` | `song <name>`, `positions <n>`, one `sample <n> <name>` line per non-empty Sample, then `OK` |
+| Flash ID | `F`: read the SPI flash's JEDEC ID | `OK flash <manufacturer> <type> <capacity>` in hex, e.g. `OK flash c2 20 17` (the board's Macronix MX25L6406); `00 00 00` or `ff ff ff` means no flash is answering |
 
 CRC-32 is the zlib/PNG one (polynomial 0xEDB88320, reflected, initial and final XOR 0xFFFFFFFF). If more than 100 ms pass between bytes of a command, the board replies `ERR timeout` and waits for a new command. The largest Song is 32 MB minus 128 KB (the end of SDRAM is reserved for Paula's silence buffer).

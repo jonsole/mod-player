@@ -1,6 +1,7 @@
 /* mod-player firmware: self-test, then serve commands from the PC
  * (docs/protocol.md) while playing. */
 #include "crc32.h"
+#include "flash.h"
 #include "hw.h"
 #include "memtest.h"
 #include "mod.h"
@@ -101,6 +102,25 @@ static void cmd_info(void)
     serial_puts("OK\r\n");
 }
 
+static void put_hex_byte(uint8_t v)
+{
+    static const char digits[] = "0123456789abcdef";
+    serial_putc(digits[v >> 4]);
+    serial_putc(digits[v & 15]);
+}
+
+static void cmd_flash_id(void)
+{
+    uint8_t id[3];
+    flash_read_id(id);
+    serial_puts("OK flash");
+    for (int i = 0; i < 3; i++) {
+        serial_putc(' ');
+        put_hex_byte(id[i]);
+    }
+    serial_puts("\r\n");
+}
+
 static void command(int c)
 {
     uint32_t size;
@@ -134,6 +154,9 @@ static void command(int c)
         break;
     case 'I':
         cmd_info();
+        break;
+    case 'F':
+        cmd_flash_id();
         break;
     default:
         reply_err("unknown command");

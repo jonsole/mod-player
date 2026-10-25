@@ -49,6 +49,7 @@ set RTL=..\..\..\..\hw\rtl
 >> top.prj echo verilog work "%RTL%\uart_rx.v"
 >> top.prj echo verilog work "%RTL%\sdram_ctrl.v"
 >> top.prj echo verilog work "%RTL%\paula.v"
+>> top.prj echo verilog work "%RTL%\spi_master.v"
 >> top.prj echo verilog work "%RTL%\dac_dsm.v"
 >> top.prj echo verilog work "%RTL%\third_party\picorv32\picorv32.v"
 >> top.prj echo verilog work "..\top.v"

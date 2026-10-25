@@ -45,6 +45,11 @@ module soc #(
     output wire                  audio_valid,
     output wire signed   [15:0]  audio_l,
     output wire signed   [15:0]  audio_r,
+    // SPI flash
+    output wire                  flash_cs_n,
+    output wire                  flash_sck,
+    output wire                  flash_mosi,
+    input wire                   flash_miso,
     // Paula register writes, for testbenches (leave unconnected)
     output wire                  dbg_paula_we,
     output wire          [6:0]   dbg_paula_addr,
@@ -81,6 +86,7 @@ module soc #(
     wire sel_uart = sel_io && mem_addr[15:8] == 8'h00;
     wire sel_gpio = sel_io && mem_addr[15:8] == 8'h02;
     wire sel_paula = sel_io && mem_addr[15:8] == 8'h01;
+    wire sel_spi  = sel_io && mem_addr[15:8] == 8'h03;
 
     // ---- firmware RAM ----
     wire [31:0] ram_rdata;
@@ -158,6 +164,18 @@ module soc #(
         .data(rx_data), .avail(rx_avail), .overrun(rx_overrun)
     );
 
+    // ---- SPI flash ----
+    wire       spi_write = mem_valid && !mem_ready && sel_spi && mem_wstrb != 0;
+    wire [7:0] spi_rdata;
+    wire       spi_busy, spi_cs;
+    spi_master spi (
+        .clk(clk), .rst(rst),
+        .start(spi_write && mem_addr[3:2] == 2'd0), .wdata(mem_wdata[7:0]),
+        .set_cs(spi_write && mem_addr[3:2] == 2'd1), .cs(mem_wdata[0]),
+        .rdata(spi_rdata), .busy(spi_busy), .cs_active(spi_cs),
+        .cs_n(flash_cs_n), .sck(flash_sck), .mosi(flash_mosi), .miso(flash_miso)
+    );
+
     // ---- bus responses ----
     always @(posedge clk) begin
         mem_ready <= 1'b0;
@@ -183,6 +201,9 @@ module soc #(
                 mem_ready <= 1'b1;
             end else if (sel_paula) begin
                 mem_rdata <= p_rdata_reg;
+                mem_ready <= 1'b1;
+            end else if (sel_spi) begin
+                mem_rdata <= mem_addr[3:2] == 2'd0 ? {24'd0, spi_rdata} : {30'd0, spi_cs, spi_busy};
                 mem_ready <= 1'b1;
             end else if (sel_gpio) begin
                 if (mem_wstrb != 0 && mem_addr[3:2] == 2'd0)

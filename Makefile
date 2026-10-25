@@ -12,7 +12,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
 .PHONY: all test hw-test soc-test dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean \
-        coefs-check resampler-test hdmi-test hdmi-chain-test hdmi-board-check
+        coefs-check resampler-test hdmi-test hdmi-chain-test hdmi-board-check flash-model-test
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
 $(BUILD):
@@ -32,7 +32,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test soc-test dsm-test fullchip-test board-test firmware-check \
+test: $(UNIT_TESTS) all hw-test flash-model-test soc-test dsm-test fullchip-test board-test firmware-check \
       resampler-test hdmi-test hdmi-chain-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command and pt2-clone oracle"; python3 -m unittest tests.test_render tests.test_oracle
@@ -107,9 +107,10 @@ firmware-check: firmware
 	@echo "== ready-built board firmware is up to date"
 
 # ---- SoC simulation ---------------------------------------------------------
-SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/uart_rx.v hw/rtl/sdram_ctrl.v hw/rtl/paula.v hw/rtl/third_party/picorv32/picorv32.v
+SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/uart_rx.v hw/rtl/sdram_ctrl.v hw/rtl/paula.v hw/rtl/spi_master.v \
+           hw/rtl/third_party/picorv32/picorv32.v
 
-SOC_TB_DEPS := $(SOC_RTL) hw/sim/soc_tb.cpp hw/sim/sdram_model.h $(SIM_C) $(BUILD)/fw/firmware0.hex
+SOC_TB_DEPS := $(SOC_RTL) hw/sim/soc_tb.cpp hw/sim/sdram_model.h hw/sim/spi_flash_model.h $(SIM_C) $(BUILD)/fw/firmware0.hex
 SOC_TB_ARGS = $(VFLAGS) -Wno-lint -Wno-style --top-module soc \
 	$(foreach n,0 1 2 3,-GFW$(n)='"$(CURDIR)/$(BUILD)/fw/firmware$(n).hex"') $(SOC_RTL) $(CURDIR)/hw/sim/soc_tb.cpp \
 	$(addprefix $(CURDIR)/,$(SIM_C)) \
@@ -279,3 +280,11 @@ hdmi-board-check: $(BUILD)/fw/firmware0.hex
 	@echo "Spartan-6 resources with HDMI (Yosys estimate; the XC6SLX25 has 15032 LUTs, 30064 flip-flops,"
 	@echo "38 DSP48A1 and 52 RAMB16):"
 	@python3 tools/yosys_stats.py $(BUILD)/yosys_hdmi.log
+
+# ---- SPI flash model (issue #17) ---------------------------------------------------
+# The model the SoC testbench uses: answers like the chip, flags mistakes
+$(BUILD)/spi_flash_model_test: hw/sim/spi_flash_model_test.cpp hw/sim/spi_flash_model.h | $(BUILD)
+	$(CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Ihw/sim -o $@ $<
+
+flash-model-test: $(BUILD)/spi_flash_model_test
+	$(BUILD)/spi_flash_model_test

@@ -78,6 +78,12 @@ If the screen stays black or says "no signal":
 2. Some displays don't accept 640×480 over HDMI, even though it is the one format every HDMI sink must support. Try another display, or a monitor with a DVI input via an adapter (it shows the picture and ignores the sound).
 3. Picture but no sound: the display may not expect audio at 640×480. ADR-0010's last point names a detail of the data packets (channel 0 bit 3) worth flipping in `hw/rtl/hdmi_tx.v` if a display is fussy.
 
+## SPI flash
+
+The board's configuration flash is a Macronix MX25L6406 (8 MB). `python3 tools/modplayer.py --port COM7 flash-id` asks the firmware to read its JEDEC ID through the SoC's own SPI master (pins T3, R11, T10, P10), and prints `OK flash c2 20 17`. That was first done on 2026-10-25 (issue #17).
+
+`build.bat flash` / `make flash` (openFPGALoader `-f`) don't work on this board yet. openFPGALoader has no SPI-over-JTAG bridge for the XC6SLX25 in FTG256. One built with ISE from openFPGALoader's own source (`xilinx_spiOverJtag.v`, `constr_xc6s_ftg256.ucf`) loads and answers, but reads the flash's ID as all 1s or all 0s, although our own design reads it fine on the same pins. Writing the FPGA image to flash through our firmware instead is issue #18.
+
 ## If it doesn't work
 
 In rough order of likelihood. Bring-up hit 1, 3 (in a different form) and 4; the notes say what the fixes were.

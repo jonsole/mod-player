@@ -21,6 +21,7 @@
 #include "Vsoc.h"
 #include "verilated.h"
 #include "sdram_model.h"
+#include "spi_flash_model.h"
 #include "mod.h"
 #include "paula_model.h"
 #include "replayer.h"
@@ -121,6 +122,7 @@ int main(int argc, char **argv)
 
     Vsoc *dut = new Vsoc;
     static SdramModel sdram;
+    static SpiFlashModel flash;
     std::string text;
     int rx_timer = -1, rx_index = 0, rx_byte = 0;    // decoding the board's output
     std::deque<uint8_t> tx_queue;                    // bytes for the board's input
@@ -170,6 +172,11 @@ int main(int argc, char **argv)
         dut->sd_dq_i = sdram.dq_garbage();
         dut->clk = 1;
         dut->eval();
+        dut->flash_miso = flash.step(dut->flash_cs_n, dut->flash_sck, dut->flash_mosi);
+        if (flash.failures) {
+            printf("serial: %s\nFAIL: SPI flash rules broken\n", text.c_str());
+            return 1;
+        }
         if (sdram.failures) {
             printf("serial: %s\nFAIL: SDRAM rules broken\n", text.c_str());
             return 1;

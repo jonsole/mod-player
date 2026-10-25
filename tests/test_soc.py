@@ -48,6 +48,11 @@ class SerialCommands(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("positions 3", out)
 
+    def test_flash_id_reads_the_flash_chips_jedec_id(self):
+        rc, out = run_soc("OK flash c2 20 17", modplayer.encode_simple("flash-id"))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("SPI flash:", out)        # the model saw no broken rules
+
     def test_a_corrupted_transfer_is_rejected(self):
         frame = bytearray(modplayer.encode_load(modgen.plain_notes_song()))
         frame[2000] ^= 0x40

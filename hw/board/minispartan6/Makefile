@@ -15,7 +15,7 @@
 ROOT    := ../../..
 PART    := xc6slx25-ftg256-3
 BUILD   := build
-RTL     := $(addprefix $(ROOT)/hw/rtl/, soc.v bram.v uart_tx.v uart_rx.v sdram_ctrl.v paula.v \
+RTL     := $(addprefix $(ROOT)/hw/rtl/, soc.v bram.v uart_tx.v uart_rx.v sdram_ctrl.v paula.v spi_master.v \
              dac_dsm.v third_party/picorv32/picorv32.v) top.v
 UCF     := top.ucf
 DEFINE  :=

@@ -26,11 +26,12 @@ def encode_play_from_memory(length):
     return b"M" + struct.pack("<I", length)
 
 
-SIMPLE = {"version": b"V", "play": b"P", "stop": b"S", "pause": b"U", "info": b"I"}
+SIMPLE = {"version": b"V", "play": b"P", "stop": b"S", "pause": b"U", "info": b"I",
+          "flash-id": b"F"}
 
 
 def encode_simple(name):
-    """version, play, stop, pause or info."""
+    """version, play, stop, pause, info or flash-id."""
     return SIMPLE[name]
 
 

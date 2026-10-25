@@ -26,4 +26,9 @@
 #define SW_PLAY_ONCE 0x4u               /* SW3: stop at the end of the Song */
 #define SW_DEV_MODE  0x8u               /* SW4: wait for the PC at power-on */
 
+#define SPI_DATA    REG32(0x20000300u)  /* write: send a byte; read: the byte received */
+#define SPI_CTRL    REG32(0x20000304u)  /* write bit 0: chip select on; read: */
+#define SPI_BUSY      0x1u              /*   a transfer is in progress */
+#define SPI_CS        0x2u              /*   chip select is on */
+
 #endif

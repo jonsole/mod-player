@@ -9,6 +9,8 @@ module board_wrap (
     output        FTDI_D1,
     output        AUDIO1,
     output        AUDIO2,
+    output        FLASH_CS, FLASH_CCLK, FLASH_MOSI,
+    input         FLASH_MISO,
     output        SDRAM_CLK, SDRAM_CKE, SDRAM_CSn, SDRAM_RASn, SDRAM_CASn, SDRAM_WEn,
     output [1:0]  SDRAM_BA,
     output [12:0] SDRAM_A,
@@ -27,6 +29,7 @@ module board_wrap (
           .FW2({`FIRMWARE, "2.hex"}), .FW3({`FIRMWARE, "3.hex"})) board (
         .CLK50(CLK50), .LEDS(LEDS), .SW(SW), .FTDI_D0(FTDI_D0), .FTDI_D1(FTDI_D1),
         .AUDIO1(AUDIO1), .AUDIO2(AUDIO2),
+        .FLASH_CS(FLASH_CS), .FLASH_CCLK(FLASH_CCLK), .FLASH_MOSI(FLASH_MOSI), .FLASH_MISO(FLASH_MISO),
         .SDRAM_CLK(SDRAM_CLK), .SDRAM_CKE(SDRAM_CKE), .SDRAM_CSn(SDRAM_CSn),
         .SDRAM_RASn(SDRAM_RASn), .SDRAM_CASn(SDRAM_CASn), .SDRAM_WEn(SDRAM_WEn),
         .SDRAM_BA(SDRAM_BA), .SDRAM_A(SDRAM_A), .SDRAM_LDQM(SDRAM_LDQM), .SDRAM_UDQM(SDRAM_UDQM),

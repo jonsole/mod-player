@@ -24,6 +24,11 @@ module top #(
     output        FTDI_D1,
     output        AUDIO1,                 // right
     output        AUDIO2,                 // left
+    // SPI flash (the configuration flash, free for use after configuration)
+    output        FLASH_CS,
+    output        FLASH_CCLK,
+    output        FLASH_MOSI,
+    input         FLASH_MISO,
 `ifdef HDMI
     output [3:0]  TMDS_P,
     output [3:0]  TMDS_N,
@@ -64,6 +69,7 @@ module top #(
         .sd_we_n(SDRAM_WEn), .sd_ba(SDRAM_BA), .sd_a(SDRAM_A), .sd_dqm({SDRAM_UDQM, SDRAM_LDQM}),
         .sd_dq_o(sd_dq_o), .sd_dq_oe(sd_dq_oe), .sd_dq_i(sd_dq_i),
         .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r),
+        .flash_cs_n(FLASH_CS), .flash_sck(FLASH_CCLK), .flash_mosi(FLASH_MOSI), .flash_miso(FLASH_MISO),
         .dbg_paula_we(), .dbg_paula_addr(), .dbg_paula_wdata()
     );
 
