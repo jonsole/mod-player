@@ -4,36 +4,42 @@ Everything below the FPGA tools has been tested in simulation; **nothing has yet
 
 ## What you need
 
-- **Xilinx ISE 14.7** (WebPACK, free licence; covers the XC6SLX25). On Linux natively, or Xilinx's ISE 14.7 Windows 10 VM.
-- **The RISC-V GCC toolchain** to build the firmware (Ubuntu/Debian: `apt install gcc-riscv64-unknown-elf`). The firmware can be built on any machine; ISE only needs the four `build/fw/firmware*.hex` files.
-- **xc3sprog**, which programs the FPGA through the board's own FT2232H (its first channel is wired as JTAG).
+- **Xilinx ISE 14.7** (WebPACK, free licence; covers the XC6SLX25), on Windows or Linux. Only its command-line tools are used.
+- **openFPGALoader**, which programs the FPGA through the board's own FT2232H (its first channel is wired as JTAG), so no separate cable is needed.
 - **Python 3 with pyserial** (`pip install pyserial`) for `tools/modplayer.py`.
+- Only if you change the firmware: **the RISC-V GCC toolchain** (Ubuntu/Debian: `apt install gcc-riscv64-unknown-elf`). A ready-built copy of the firmware is kept in `hw/board/minispartan6/firmware/`; `make board-firmware` refreshes it and `make test` fails if it is out of date.
 
-## Build
+## Build and program on Windows
+
+1. **Build.** Open a Command Prompt in `hw\board\minispartan6` and run `build.bat`. It finds ISE in `D:\Xilinx\14.7\ISE_DS` or `C:\Xilinx\14.7\ISE_DS` (or set `ISE_DIR` to the folder holding `settings64.bat`), runs XST, ngdbuild, map, par, trce and bitgen, and writes `build\top.bit`. A build takes a few minutes.
+2. **Install openFPGALoader.** The simplest route is MSYS2 (https://www.msys2.org): in its UCRT64 shell, `pacman -S mingw-w64-ucrt-x86_64-openFPGALoader`, then add `C:\msys64\ucrt64\bin` to the Windows PATH.
+3. **Give the JTAG channel a USB driver.** Windows binds both FT2232H channels to FTDI's serial driver; openFPGALoader needs the first one on WinUSB. Run Zadig (https://zadig.akeo.ie), tick *Options > List All Devices*, pick the board's **Interface 0** and install **WinUSB**. Leave **Interface 1** alone: it stays the COM port the player talks over.
+4. **Program.** `build.bat prog` loads the FPGA (lost at power-off); `build.bat flash` writes the SPI flash so it loads at power-on.
+
+ISE 14.7 on Windows 10/11 is known for crashes in its graphical tools (Project Navigator, iMPACT) under 64-bit; the command-line tools used here are not affected.
+
+## Build and program on Linux
 
 ```sh
-make firmware                                  # in the repository root
 cd hw/board/minispartan6
 source /opt/Xilinx/14.7/ISE_DS/settings64.sh   # wherever ISE is installed
-make                                           # -> build/top.bit
+make            # -> build/top.bit (builds the firmware first: needs RISC-V GCC)
+make prog       # load into the FPGA (lost at power-off)
+make flash      # write to the SPI flash, so it loads at power-on
 ```
 
-The build runs XST, ngdbuild, map, par, trce and bitgen. Check the timing summary it prints (from `build/top.twr`): the whole design is one 50 MHz clock (20 ns). The part is assumed to be `xc6slx25-ftg256-3`; if your chip says `-2`, change `PART` in the Makefile.
+You may need a udev rule (or `sudo`) for access to the FTDI device.
 
-Changing only the firmware still means re-running the ISE build, because the firmware lives in the FPGA's block RAM. (A boot loader that loads firmware over serial or from flash is planned, ADR-0006.)
+## Notes on the build
 
-## Program
+Check the timing summary the build prints (from `build/top.twr`): the whole design is one 50 MHz clock (20 ns). The part is assumed to be `xc6slx25-ftg256-3`; if your chip says `-2`, change `PART` in the Makefile and `build.bat`.
 
-```sh
-make prog     # load into the FPGA (lost at power-off)
-make flash    # write to the SPI flash, so it loads at power-on
-              # (needs xc3sprog's bscan_spi_xc6slx25.bit in this folder)
-```
+Changing the firmware means re-running the ISE build, because the firmware lives in the FPGA's block RAM. (A boot loader that loads firmware over serial or from flash is planned, ADR-0006.)
 
 ## Use
 
 1. After programming, LED 0 lights, then blinks about three times a second (the heartbeat: the soft CPU is running). The firmware tests the SDRAM and checks that Paula's tick timer fires, printing over serial: `mod-player 0.1`, `sdram ok`, `paula ok`, `ready`.
-2. The serial port is the FT2232H's **second** interface (`/dev/ttyUSB1` on Linux, the higher-numbered COM port on Windows), at **1 000 000 baud**.
+2. The serial port is the FT2232H's **second** interface (`/dev/ttyUSB1` on Linux; on Windows the COM port Device Manager lists, e.g. `--port COM5`), at **1 000 000 baud**.
 3. Plug headphones or an amplifier into the jack. **Start with the volume low:** the jack is driven straight from the FPGA pins through an RC filter, at up to about 3 V peak to peak.
 4. Load and play a Song:
 

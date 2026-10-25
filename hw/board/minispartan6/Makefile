@@ -3,8 +3,10 @@
 #
 #   source /opt/Xilinx/14.7/ISE_DS/settings64.sh
 #   make            # -> build/top.bit (firmware built into the block RAM)
-#   make prog       # load it into the FPGA over JTAG with xc3sprog
+#   make prog       # load it into the FPGA over JTAG with openFPGALoader
 #   make flash      # write it to the SPI flash so it loads at power-on
+#
+# On Windows, use build.bat instead (same steps, no make or RISC-V compiler).
 #
 # The firmware is built first by the main Makefile (RISC-V GCC); its
 # block-RAM files are copied next to the XST run, where top.v's
@@ -63,13 +65,14 @@ $(BUILD)/top.ncd: $(BUILD)/top_map.ncd
 $(BUILD)/top.bit: $(BUILD)/top.ncd
 	cd $(BUILD) && bitgen -w -g StartUpClk:CClk -g CRC:Enable top.ncd top.bit
 
-# xc3sprog drives the FT2232H's first channel as JTAG (http://xc3sprog.sourceforge.net)
+# openFPGALoader knows this board: it drives the FT2232H's first channel as
+# JTAG, and for the flash loads its own JTAG-to-SPI bridge into the FPGA first.
+# (xc3sprog works too: xc3sprog -c ftdi build/top.bit)
 prog: $(BUILD)/top.bit
-	xc3sprog -c ftdi $(BUILD)/top.bit
+	openFPGALoader -b minispartan6 $(BUILD)/top.bit
 
-# Needs xc3sprog's bscan_spi_xc6slx25.bit (from its sources) in this folder
 flash: $(BUILD)/top.bit
-	xc3sprog -c ftdi -I bscan_spi_xc6slx25.bit $(BUILD)/top.bit
+	openFPGALoader -b minispartan6 -f $(BUILD)/top.bit
 
 $(BUILD):
 	mkdir -p $@

@@ -11,7 +11,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test soc-test dsm-test fullchip-test board-test synth-check firmware clean
+.PHONY: all test hw-test soc-test dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
 $(BUILD):
@@ -31,7 +31,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test soc-test dsm-test fullchip-test board-test
+test: $(UNIT_TESTS) all hw-test soc-test dsm-test fullchip-test board-test firmware-check
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command and pt2-clone oracle"; python3 -m unittest tests.test_render tests.test_oracle
 
@@ -91,6 +91,18 @@ $(BUILD)/fw/firmware0.hex: $(BUILD)/fw/firmware.elf tools/bin2lanes.py
 	python3 tools/bin2lanes.py $(BUILD)/fw/firmware.bin $(FW_WORDS) $(BUILD)/fw/firmware
 
 firmware: $(BUILD)/fw/firmware0.hex
+
+# A ready-built copy of the firmware is kept with the board files, so the FPGA
+# can be built (e.g. with ISE on Windows) without a RISC-V compiler.
+# `make board-firmware` refreshes it; `make test` checks it is up to date.
+BOARD_FW := hw/board/minispartan6/firmware
+board-firmware: firmware
+	cp $(BUILD)/fw/firmware0.hex $(BUILD)/fw/firmware1.hex $(BUILD)/fw/firmware2.hex $(BUILD)/fw/firmware3.hex $(BOARD_FW)/
+
+firmware-check: firmware
+	@for n in 0 1 2 3; do cmp -s $(BUILD)/fw/firmware$$n.hex $(BOARD_FW)/firmware$$n.hex || \
+	  { echo "$(BOARD_FW) is out of date: run 'make board-firmware' and commit it"; exit 1; }; done
+	@echo "== ready-built board firmware is up to date"
 
 # ---- SoC simulation ---------------------------------------------------------
 SOC_RTL := hw/rtl/soc.v hw/rtl/bram.v hw/rtl/uart_tx.v hw/rtl/uart_rx.v hw/rtl/sdram_ctrl.v hw/rtl/paula.v hw/rtl/third_party/picorv32/picorv32.v

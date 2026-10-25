@@ -79,6 +79,8 @@ Working through real pin timing on paper turned up one more problem the idealise
 
 Two smaller changes reduce bring-up risk. The block-RAM init files are now plain file-name parameters rather than built-up paths, which XST may not accept (Yosys confirms all 16 block RAMs carry the firmware). And the firmware gives signs of life without a PC: LED 0 blinks while idle, and at boot it checks that Paula's tick timer fires and prints `paula ok` after `sdram ok`.
 
+For building on Windows (ISE is most at home there), `build.bat` runs the same ISE steps as the Makefile, and a ready-built copy of the firmware is kept with the board files so no RISC-V compiler is needed; `make test` fails if that copy falls behind the source. Programming uses openFPGALoader, which knows the board and drives JTAG through the board's own USB chip.
+
 ## Where it stands
 
 - Phase 1 (PC reference) and phase 2 (full-chip simulation) are done; `make test` runs everything in about two minutes.
