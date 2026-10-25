@@ -120,5 +120,82 @@ class SerialCommands(unittest.TestCase):
         self.assertEqual(rc, 0, out)
 
 
+def flash_with_saved_song(record):
+    """A flash image file: erased, with `record` at the saved-Song address."""
+    path = os.path.join(tempfile.mkdtemp(), "flash.bin")
+    with open(path, "wb") as f:
+        f.write(b"\xff" * modplayer.SAVED_SONG_ADDR + record)
+    return path
+
+
+def run_tb(args):
+    result = subprocess.run([SOC_TB] + args, capture_output=True, text=True)
+    return result.returncode, result.stdout
+
+
+class SavedSong(unittest.TestCase):
+    """A Song saved in flash plays at power-on (issue #19)."""
+
+    def test_a_saved_song_plays_at_power_on_like_the_pc_reference(self):
+        song = modgen.plain_notes_song()
+        path = os.path.join(tempfile.mkdtemp(), "song.mod")
+        with open(path, "wb") as f:
+            f.write(song)
+        rc, out = run_tb(["--flash-image", flash_with_saved_song(modplayer.saved_song_record(song)),
+                          "--compare", path, "0.5", "--max", "200000000"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("frames match the PC reference", out)
+
+    def test_a_saved_song_announces_itself(self):
+        rc, out = run_tb(["--flash-image",
+                          flash_with_saved_song(modplayer.saved_song_record(modgen.plain_notes_song())),
+                          "saved Song: plain notes"])
+        self.assertEqual(rc, 0, out)
+
+    def test_a_damaged_saved_song_is_ignored(self):
+        record = bytearray(modplayer.saved_song_record(modgen.plain_notes_song()))
+        record[100] ^= 0x10
+        rc, out = run_tb(["--flash-image", flash_with_saved_song(bytes(record)),
+                          "saved Song damaged: ignored"])
+        self.assertEqual(rc, 0, out)
+
+    def test_with_sw4_on_the_saved_song_waits(self):
+        rc, out = run_tb(["--switches", "8", "--flash-image",
+                          flash_with_saved_song(modplayer.saved_song_record(modgen.plain_notes_song())),
+                          "saved Song not played: SW4 is on"])
+        self.assertEqual(rc, 0, out)
+
+    def test_no_saved_song_means_just_ready(self):
+        rc, out = run_soc("OK mod-player", modplayer.encode_simple("version"))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("saved Song", out)
+
+    def test_save_writes_the_record_and_forget_removes_it(self):
+        song = modgen.plain_notes_song()
+        record = modplayer.saved_song_record(song)
+        rc, out = run_soc("OK crc %08x" % zlib.crc32(record),
+                          modplayer.encode_save(song) +
+                          modplayer.encode_flash_crc(modplayer.SAVED_SONG_ADDR, len(record)))
+        self.assertEqual(rc, 0, out)
+        rc, out = run_soc("OK crc %08x" % zlib.crc32(b"\0" * 16),
+                          modplayer.encode_forget() +
+                          modplayer.encode_flash_crc(modplayer.SAVED_SONG_ADDR, 16))
+        self.assertEqual(rc, 0, out)
+
+
+class FlashLayout(unittest.TestCase):
+    def test_firmware_and_pc_script_agree_on_the_saved_song_address(self):
+        with open(os.path.join(ROOT, "firmware", "flash.h")) as f:
+            text = f.read()
+        import re
+        addr = int(re.search(r"#define FLASH_SONG_ADDR\s+(0x[0-9a-fA-F]+)u", text).group(1), 16)
+        size = int(re.search(r"#define FLASH_SONG_SIZE\s+(0x[0-9a-fA-F]+)u", text).group(1), 16)
+        self.assertEqual(addr, modplayer.SAVED_SONG_ADDR)
+        self.assertEqual(size, modplayer.SAVED_SONG_SIZE)
+        image = int(re.search(r"#define FLASH_IMAGE_SIZE\s+(0x[0-9a-fA-F]+)u", text).group(1), 16)
+        self.assertGreaterEqual(image, 805 * 1024)    # the XC6SLX25's bitstream fits
+        self.assertLessEqual(image, addr)
+
+
 if __name__ == "__main__":
     unittest.main()

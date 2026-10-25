@@ -179,6 +179,36 @@ static void cmd_flash_crc(void)
     serial_puts("\r\n");
 }
 
+/* At power-on: play the Song saved in flash, if there is a good one
+ * (docs/flash-layout.md). SW4 (developer mode) leaves it for the PC. */
+static void play_saved_song(void)
+{
+    uint32_t header[4];
+    flash_read(FLASH_SONG_ADDR, (uint8_t *)header, sizeof header);
+    uint32_t size = header[1], crc = header[2];
+    if (header[0] != FLASH_SONG_MAGIC || size == 0 || size > FLASH_SONG_SIZE - 16 || size > SONG_MAX)
+        return;                                     /* nothing saved */
+    if (SWITCHES & SW_DEV_MODE) {
+        serial_puts("saved Song not played: SW4 is on\r\n");
+        return;
+    }
+    if (flash_read(FLASH_SONG_ADDR + 16, SONG, size) != crc) {
+        serial_puts("saved Song damaged: ignored\r\n");
+        return;
+    }
+    const char *err = player_load(SONG, size);
+    if (err) {
+        serial_puts("saved Song not playable: ");
+        serial_puts(err);
+        serial_puts("\r\n");
+        return;
+    }
+    player_play();
+    serial_puts("saved Song: ");
+    serial_puts(player_song()->name);
+    serial_puts("\r\n");
+}
+
 static void command(int c)
 {
     uint32_t size;
@@ -248,6 +278,7 @@ int main(void)
     player_init();
     serial_puts(player_self_test() ? "paula ok\r\n" : "paula FAIL: no tick\r\n");
     serial_puts("ready\r\n");
+    play_saved_song();
     for (;;) {
         if (serial_avail())
             command(serial_getc_timeout(0));

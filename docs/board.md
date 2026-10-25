@@ -91,6 +91,8 @@ python3 tools/modplayer.py --port COM7 flash-write hw/board/minispartan6/build-h
 
 This takes about 30 seconds for an 800 KB image, and the firmware reads it back and checks it. The board's mode pins are set to boot from SPI flash, so the image loads at the next power-on. To load it straight away, run `openFPGALoader -b minispartan6 -r`, which makes the FPGA reconfigure from flash. Any image with the current firmware can write any other image, so you can load the plain build and write the HDMI one, or the other way round.
 
+**To have a Song play at power-on, with no PC:** `python3 tools/modplayer.py --port COM7 save song.mod`. `forget` removes it, and SW4 (developer mode) stops it playing at power-on without removing it. Where things live in the flash is in `docs/flash-layout.md`.
+
 `build.bat flash` / `make flash` (openFPGALoader `-f`) don't work on this board. openFPGALoader has no SPI-over-JTAG bridge for the XC6SLX25 in FTG256. One built with ISE from openFPGALoader's own source (`xilinx_spiOverJtag.v`, `constr_xc6s_ftg256.ucf`) loads and answers, but reads the flash's ID as all 1s or all 0s, although our own design reads it fine on the same pins.
 
 ## If it doesn't work

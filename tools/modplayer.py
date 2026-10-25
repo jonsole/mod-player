@@ -3,6 +3,7 @@
     python3 tools/modplayer.py [--port PORT] load song.mod
     python3 tools/modplayer.py [--port PORT] play | stop | pause | info | version | flash-id
     python3 tools/modplayer.py [--port PORT] flash-write top.bit   (the FPGA image, to boot from)
+    python3 tools/modplayer.py [--port PORT] save song.mod | forget  (the Song played at power-on)
 
 PORT defaults to /dev/ttyUSB1 (the FT2232H's second port on Linux; on
 Windows something like COM4). Needs pyserial (pip install pyserial).
@@ -36,6 +37,30 @@ def encode_flash_write(addr, data):
     erases what it needs (whole 4 KB sectors from addr), programs and
     verifies."""
     return b"W" + struct.pack("<II", addr, len(data)) + data + struct.pack("<I", zlib.crc32(data))
+
+
+# Flash layout (docs/flash-layout.md; firmware/flash.h has the same numbers)
+SAVED_SONG_ADDR = 0x200000
+SAVED_SONG_SIZE = 0x600000
+SAVED_SONG_MAGIC = b"MODS"
+
+
+def saved_song_record(song):
+    """What goes in the saved-Song region: MODS, length, CRC-32, 4 zero
+    bytes, then the MOD file."""
+    if 16 + len(song) > SAVED_SONG_SIZE:
+        raise ValueError("Song too large to save (%d bytes; at most %d)" % (len(song), SAVED_SONG_SIZE - 16))
+    return SAVED_SONG_MAGIC + struct.pack("<II", len(song), zlib.crc32(song)) + bytes(4) + song
+
+
+def encode_save(song):
+    """Save a Song to flash, to play at power-on."""
+    return encode_flash_write(SAVED_SONG_ADDR, saved_song_record(song))
+
+
+def encode_forget():
+    """Remove the saved Song (its header becomes zeros)."""
+    return encode_flash_write(SAVED_SONG_ADDR, bytes(16))
 
 
 def encode_flash_crc(addr, length):
@@ -89,7 +114,7 @@ def read_reply(ser, timeout=10.0):
 def main(argv):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--port", default="/dev/ttyUSB1")
-    p.add_argument("command", choices=["load", "flash-write"] + sorted(SIMPLE))
+    p.add_argument("command", choices=["load", "flash-write", "save", "forget"] + sorted(SIMPLE))
     p.add_argument("file", nargs="?")
     p.add_argument("--addr", type=lambda s: int(s, 0), default=0,
                    help="flash-write: flash address (default 0, where the FPGA boots from)")
@@ -107,6 +132,16 @@ def main(argv):
             print("sending %s (%d bytes, about %.1f s)" % (args.file, len(data), len(data) * 10 / BAUD))
             ser.write(encode_load(data))
             lines = read_reply(ser, timeout=len(data) * 10 / BAUD + 5)
+        elif args.command in ("save", "forget"):
+            if args.command == "save":
+                if not args.file:
+                    sys.exit("save needs a MOD file")
+                frame = encode_save(open(args.file, "rb").read())
+                print("saving %s to flash: it will play at power-on" % args.file)
+            else:
+                frame = encode_forget()
+            ser.write(frame)
+            lines = read_reply(ser, timeout=len(frame) * 10 / BAUD + (len(frame) / 65536 + 1) * 4 + 30)
         elif args.command == "flash-write":
             if not args.file:
                 sys.exit("flash-write needs a .bit file")

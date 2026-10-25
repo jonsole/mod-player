@@ -102,13 +102,22 @@ void flash_program(uint32_t addr, const uint8_t *data, uint32_t len)
     }
 }
 
-uint32_t flash_crc(uint32_t addr, uint32_t len)
+uint32_t flash_read(uint32_t addr, uint8_t *dst, uint32_t len)
 {
     uint32_t crc = 0xFFFFFFFFu;
     select(1);
     command_addr(CMD_READ, addr);
-    for (uint32_t i = 0; i < len; i++)
-        crc = crc32_update(crc, transfer(0));
+    for (uint32_t i = 0; i < len; i++) {
+        uint8_t b = transfer(0);
+        if (dst)
+            dst[i] = b;
+        crc = crc32_update(crc, b);
+    }
     select(0);
     return ~crc;
+}
+
+uint32_t flash_crc(uint32_t addr, uint32_t len)
+{
+    return flash_read(addr, 0, len);
 }

@@ -10,6 +10,7 @@
 //     --switches N      DIP switch setting (bit 0 = SW1)
 //     --flash-fill B    start with every byte of the SPI flash model set to B
 //                       (default 0xff, erased)
+//     --flash-image F   then put F's bytes at the start of the flash model
 //     --compare FILE S  when the firmware starts a Song (it writes Paula's
 //                       options), compare Paula's audio with the PC reference
 //                       (Replayer + Paula C model) for FILE, for S seconds;
@@ -98,6 +99,7 @@ int main(int argc, char **argv)
     const char *after = nullptr, *expect = nullptr;
     std::vector<uint8_t> to_send, preload;
     int switches = 0, flash_fill = 0xFF;
+    std::vector<uint8_t> flash_image;
     std::vector<uint8_t> compare_song;
     long long compare_frames = 0, compared = 0;
     static Reference ref;
@@ -108,6 +110,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--preload") && i + 1 < argc) preload = read_file(argv[++i]);
         else if (!strcmp(argv[i], "--switches") && i + 1 < argc) switches = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--flash-fill") && i + 1 < argc) flash_fill = (int)strtol(argv[++i], nullptr, 0);
+        else if (!strcmp(argv[i], "--flash-image") && i + 1 < argc) flash_image = read_file(argv[++i]);
         else if (!strcmp(argv[i], "--compare") && i + 2 < argc) {
             compare_song = read_file(argv[++i]);
             compare_frames = (long long)(atof(argv[++i]) * PAULA_CCK_HZ);
@@ -135,6 +138,8 @@ int main(int argc, char **argv)
     dut->uart_rx = 1;
     dut->switches = switches;
     std::fill(flash.mem.begin(), flash.mem.end(), (uint8_t)flash_fill);
+    std::copy(flash_image.begin(), flash_image.begin() + std::min(flash_image.size(), flash.mem.size()),
+              flash.mem.begin());
 
     for (long long cycle = 0; cycle < max_cycles; cycle++) {
         if (cycle == 10)

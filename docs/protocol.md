@@ -17,4 +17,6 @@ Every command is one byte, sometimes followed by binary arguments (little-endian
 | Flash write | `W`, address (u32), length (u32), the data, CRC-32 of the data (u32). Stops the Song; the address must be a multiple of 4096. The board erases the 4 KB sectors (64 KB blocks where it can) the data covers, programs it and reads it back | `OK written`, or `ERR <reason>` (checksum mismatch, address, past the end of the flash, or `flash doesn't read back as written`) after the whole transfer. Erasing takes up to a few seconds per 64 KB, so allow time |
 | Flash CRC | `C`, address (u32), length (u32) | `OK crc <8 hex digits>`: CRC-32 of that range of flash |
 
+Saving a Song to play at power-on is a flash write of a saved-Song record to its region (`docs/flash-layout.md`). At power-on, after `ready`, the board prints `saved Song: <name>` when it starts playing one.
+
 CRC-32 is the zlib/PNG one (polynomial 0xEDB88320, reflected, initial and final XOR 0xFFFFFFFF). If more than 100 ms pass between bytes of a command, the board replies `ERR timeout` and waits for a new command. Wait for each reply before sending the next command: the board's serial input holds only one byte, so bytes sent while it is busy (erasing flash, for example) are lost. The largest Song is 32 MB minus 128 KB (the end of SDRAM is reserved for Paula's silence buffer).
