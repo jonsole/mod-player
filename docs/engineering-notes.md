@@ -41,7 +41,7 @@ Every ticket also got a **mutation check**: deliberately break the code a few pl
 
 ## Phase 2: the chip, in simulation
 
-Everything runs under Verilator in the normal test suite (`make test`, about a minute).
+Everything runs under Verilator in the normal test suite (`make test`, about two minutes).
 
 **Verilog Paula** (`hw/rtl/paula.v`) is compared against the C model frame by frame: same register writes in, same samples out, for every test Song (5 seconds each, all 8 option combinations) plus fuzzed random register writes, with the memory model answering after random delays.
 
@@ -51,7 +51,7 @@ Getting that exact needed a design decision (ADR-0009). On the board the CPU tak
 
 The test then caught a subtler case: the invert-loop effect (EFx) makes the Replayer *modify Sample data*, and a CPU write to memory lands mid-tick at a CPU-dependent moment. Fix: ProTracker's `-1 - x` is just a bit flip, so it became a queued Paula command (`INVERT addr`), applied at the boundary like everything else (and order-independent).
 
-Paula's engine was first written for clarity (13 clocks per colour clock, but only 14.1 are available at 50 MHz) and then reworked with the tests as a safety net: all four voices step in parallel, the output stage is merged, and it now takes 3 clocks (5 with the LED filter). A real-time build paced at 50 MHz confirms it never falls behind.
+Paula's engine was first written for clarity (13 clocks per colour clock, but only 14.1 are available at 50 MHz) and then reworked with the tests as a safety net: all four voices step in parallel, the output stage is merged, and it took 3 clocks (5 with the LED filter); splitting its longest path for timing later made that 4 (6). A real-time build paced at 50 MHz confirms it never falls behind.
 
 **Soft CPU**: PicoRV32 (rv32im) with 32 KB of block RAM, built as four byte-wide memories so XST can initialise them from `$readmemh` files. The firmware has its own start-up code and linker script; the testbench decodes the serial line.
 
@@ -76,6 +76,8 @@ It found three more bugs, all of which would have shown up on the board:
 - **Board-level simulation**: `top.v` itself, with models of `ODDR2`/`IOBUF` and the SDRAM model on the pins, boots, plays a left-only Song and checks that the RC-filtered left pin swings and the right pin stays quiet.
 
 Working through real pin timing on paper turned up one more problem the idealised SDRAM model had hidden. With the SDRAM clocked from the inverted system clock, read data arrives about 6 ns (access time) plus 4–5 ns (pin delays) after the chip's clock edge, i.e. it is valid from just *after* one of our rising edges to ~16 ns later. Capturing on the rising edge, as the controller did, lands right in the transition. It now captures on the falling edge, mid-window. The testbenches were made to present read data only around that edge (and garbage at rising edges), and with that change the old capture point fails in simulation, as it would have on the board. Paula's longest path (blend, then a 32×18 multiply-add) was also split over two clocks; Paula has spare cycles (4–6 of 14 per colour clock).
+
+Two smaller changes reduce bring-up risk. The block-RAM init files are now plain file-name parameters rather than built-up paths, which XST may not accept (Yosys confirms all 16 block RAMs carry the firmware). And the firmware gives signs of life without a PC: LED 0 blinks while idle, and at boot it checks that Paula's tick timer fires and prints `paula ok` after `sdram ok`.
 
 ## Where it stands
 
