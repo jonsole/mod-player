@@ -17,7 +17,7 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 
 ## Git
 
-- **`main`** holds all the work (pushed 2026-10-25, the same commits as branch `claude/amazing-turing-qjhzlh`). GitHub's default branch is still the `claude/...` one; switch it to `main` in the repo settings.
+- **`main`** holds all the work (pushed 2026-10-25, the same commits as branch `claude/amazing-turing-qjhzlh`). It is GitHub's default branch.
 - Finished issues are closed. Still open: #1 (the spec, parent of the rest), #9 (needs more owner MOD files and a by-ear check), #19 (waits for the power-cycle check with SW4 off). The plan from here is #20–#23 (boot loader, then the status screen), all sub-issues of #1.
 - Commit messages: imperative subject, short body explaining why.
 
