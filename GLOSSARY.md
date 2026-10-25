@@ -42,6 +42,10 @@ _Avoid_: sound chip, mixer, audio engine
 One of Paula's four playback units, each with its own sample pointer, length, period and volume.
 _Avoid_: channel (reserved for the tracker column it plays), track
 
+**Resampler**:
+The hardware block that turns Paula's output, one frame per colour clock, into 48 kHz audio for HDMI, with a low-pass filter so nothing folds back into the audible band.
+_Avoid_: SRC, decimator, converter
+
 **Replayer**:
 The software, running on the soft CPU, that reads the song each tick and programs Paula's voices.
 _Avoid_: player routine, driver, sequencer

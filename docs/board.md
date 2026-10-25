@@ -63,6 +63,21 @@ Changing the firmware means re-running the ISE build, because the firmware lives
 
 **LEDs:** LED 0 blinking: idle and alive. While playing, two per voice as a rough level meter (voice 1 = LEDs 0–1). LEDs alternating 10101010 / 01010101: the SDRAM test failed. No LEDs at all: the FPGA isn't configured or the clock isn't running.
 
+## HDMI (sound on a TV or monitor)
+
+The HDMI build adds 640×480 at 60 Hz output on the HDMI connector (J3) with the Song's sound as 48 kHz stereo. The picture is a plain blue screen for now; a status screen is planned. The audio jack keeps working at the same time. How it works is in ADR-0010.
+
+- Windows: `build.bat hdmi` (or `build.bat hdmi prog` / `build.bat hdmi flash`). The image goes to `build-hdmi\top.bit`, so the plain build in `build\` is left alone.
+- Linux: `make HDMI=1` (and `make HDMI=1 prog`), into `build-hdmi/`.
+
+Use it as above, with the TV's or monitor's speakers instead of the jack. HDMI sound is about 0.7 ms behind the jack, and silence goes out whenever no Song is playing.
+
+If the screen stays black or says "no signal":
+
+1. Check `build-hdmi/top.twr`: there are now three clocks (50, 25.2 and 126 MHz), and all of them must meet timing. The 25.2 MHz pixel clock comes from a DCM (50 × 21/25 = 42 MHz) feeding a PLL (× 15 = 630 MHz, ÷ 5 and ÷ 25).
+2. Some displays don't accept 640×480 over HDMI, even though it is the one format every HDMI sink must support. Try another display, or a monitor with a DVI input via an adapter (it shows the picture and ignores the sound).
+3. Picture but no sound: the display may not expect audio at 640×480. ADR-0010's last point names a detail of the data packets (channel 0 bit 3) worth flipping in `hw/rtl/hdmi_tx.v` if a display is fussy.
+
 ## If it doesn't work
 
 In rough order of likelihood. Bring-up hit 1, 3 (in a different form) and 4; the notes say what the fixes were.
@@ -81,3 +96,4 @@ In rough order of likelihood. Bring-up hit 1, 3 (in a different form) and 4; the
 - The whole chip (CPU, firmware, SDRAM controller against a rule-checking SDRAM model, Paula) plays every test Song exactly as the PC reference does.
 - The board top level boots through the real pin wiring (tristate data bus, inverted SDRAM clock) and drives sound to the left and right pins correctly.
 - All 56 pin locations match Scarab's published pin file.
+- HDMI: the Resampler's Verilog matches its C model output for output; a sink model decoding the transmitter's characters finds legal HDMI 1.3 timing, packets, checksums and InfoFrames; and Songs' sound comes out of the whole HDMI chain, across its clock domains, exactly as the C model computes it (`make resampler-test hdmi-test hdmi-chain-test`). The 8 HDMI pins are from Scarab's pin file too.

@@ -11,7 +11,7 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 | 3 | Board build: `top.v`, pins, ISE build (Makefile + `build.bat`) | Done 2026-10-25: built with ISE 14.7 on Windows 11; boots and plays `gods.mod` on the board (issue #16). Fixes and setup notes in `docs/board.md` |
 | 5 | Boot loader, Song saved to flash (ADR-0006) | Not started |
 | 6 | microSD | Not started |
-| 7 | HDMI audio | Not started |
+| 7 | HDMI audio | First step done in simulation and built with ISE (`build.bat hdmi`): 640x480p60, 48 kHz audio through an exact integer Resampler, plain blue screen (ADR-0010). Works on the owner's display (picture and sound), 2026-10-25. Status screen still to do |
 
 `docs/engineering-notes.md` tells the story of how it was built (published at https://claude.ai/artifact/1u8FxjXG6NGccab94wUaZw). `docs/board.md` is the build/program/use guide with troubleshooting.
 

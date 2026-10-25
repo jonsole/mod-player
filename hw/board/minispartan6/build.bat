@@ -5,6 +5,8 @@ rem
 rem   build.bat          build build\top.bit
 rem   build.bat prog     build, then load it into the FPGA (lost at power-off)
 rem   build.bat flash    build, then write it to the SPI flash (loads at power-on)
+rem   build.bat hdmi     the same with HDMI output (ADR-0010), in build-hdmi\top.bit;
+rem                      also build.bat hdmi prog, build.bat hdmi flash
 rem
 rem ISE is looked for in D:\Xilinx\14.7\ISE_DS, then C:\Xilinx\14.7\ISE_DS; set
 rem ISE_DIR to use another folder. prog and flash need openFPGALoader on the
@@ -15,6 +17,13 @@ setlocal
 set PART=xc6slx25-ftg256-3
 set HERE=%~dp0
 set ACTION=%1
+set HDMI=
+set OUT=build
+if /i "%1"=="hdmi" (
+  set HDMI=1
+  set OUT=build-hdmi
+  set ACTION=%2
+)
 
 if not defined ISE_DIR if exist "D:\Xilinx\14.7\ISE_DS\settings64.bat" set ISE_DIR=D:\Xilinx\14.7\ISE_DS
 if not defined ISE_DIR if exist "C:\Xilinx\14.7\ISE_DS\settings64.bat" set ISE_DIR=C:\Xilinx\14.7\ISE_DS
@@ -26,11 +35,12 @@ if not defined ISE_DIR (
 call "%ISE_DIR%\settings64.bat" >nul
 
 cd /d "%HERE%"
-if not exist build mkdir build
-cd build
+if not exist %OUT% mkdir %OUT%
+cd %OUT%
 if not exist xst_tmp mkdir xst_tmp
 if not exist xst_hdp mkdir xst_hdp
 copy /y ..\firmware\firmware?.hex . >nul || goto fail
+if defined HDMI copy /y ..\..\..\rtl\resampler_coefs.hex . >nul || goto fail
 
 set RTL=..\..\..\..\hw\rtl
 > top.prj echo verilog work "%RTL%\soc.v"
@@ -42,6 +52,14 @@ set RTL=..\..\..\..\hw\rtl
 >> top.prj echo verilog work "%RTL%\dac_dsm.v"
 >> top.prj echo verilog work "%RTL%\third_party\picorv32\picorv32.v"
 >> top.prj echo verilog work "..\top.v"
+if defined HDMI (
+  >> top.prj echo verilog work "%RTL%\hdmi_out.v"
+  >> top.prj echo verilog work "%RTL%\resampler.v"
+  >> top.prj echo verilog work "%RTL%\hdmi_audio_fifo.v"
+  >> top.prj echo verilog work "%RTL%\hdmi_tx.v"
+  >> top.prj echo verilog work "%RTL%\tmds_encoder.v"
+  >> top.prj echo verilog work "..\hdmi_phy.v"
+)
 
 > top.xst echo set -tmpdir xst_tmp
 >> top.xst echo set -xsthdpdir xst_hdp
@@ -57,11 +75,14 @@ set RTL=..\..\..\..\hw\rtl
 >> top.xst echo -keep_hierarchy No
 >> top.xst echo -iob auto
 >> top.xst echo -uc ..\top.xcf
+if defined HDMI >> top.xst echo -define {HDMI}
+set UCF=-uc ..\top.ucf
+if defined HDMI set UCF=-uc ..\top.ucf -uc ..\hdmi.ucf
 
 echo === xst (synthesis)
 xst -ifn top.xst -ofn top.srp || goto fail
 echo === ngdbuild
-ngdbuild -uc ..\top.ucf -p %PART% top.ngc top.ngd || goto fail
+ngdbuild %UCF% -p %PART% top.ngc top.ngd || goto fail
 echo === map
 rem -pr b packs the SDRAM pin registers into the I/O blocks.
 rem On Windows 11, ISE 14.7's map sometimes dies during global placement with
@@ -83,7 +104,7 @@ trce -v 10 top.ncd top.pcf -o top.twr || goto fail
 findstr /c:"Timing errors" /c:"timing errors" /c:"Score" top.twr
 echo === bitgen
 bitgen -w -g StartUpClk:CClk -g CRC:Enable top.ncd top.bit || goto fail
-echo Built %HERE%build\top.bit
+echo Built %HERE%%OUT%\top.bit
 
 if /i "%ACTION%"=="prog" (
   openFPGALoader -b minispartan6 top.bit || goto fail
@@ -95,5 +116,5 @@ exit /b 0
 
 :fail
 echo.
-echo *** Build stopped: see the messages above (logs are in %HERE%build).
+echo *** Build stopped: see the messages above (logs are in %HERE%%OUT%).
 exit /b 1

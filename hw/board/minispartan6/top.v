@@ -8,11 +8,14 @@
 //   AUDIO2/1    jack tip (left) / ring (right), each through 3.3 kOhm + 4.7 nF
 //   SW1..4      DIP switches to ground, with pull-ups: on = 0
 //   LEDS        active high
+//   TMDS_P/N    HDMI out (J3), only in the HDMI build (`define HDMI,
+//               build.bat hdmi): pairs 0 blue, 1 green, 2 red, 3 clock
 module top #(
     parameter FW0 = "firmware0.hex",      // the firmware, one $readmemh file per byte lane
     parameter FW1 = "firmware1.hex",
     parameter FW2 = "firmware2.hex",
-    parameter FW3 = "firmware3.hex"
+    parameter FW3 = "firmware3.hex",
+    parameter COEFS = "resampler_coefs.hex"   // HDMI build: the Resampler's table
 ) (
     input         CLK50,
     output [7:0]  LEDS,
@@ -21,6 +24,10 @@ module top #(
     output        FTDI_D1,
     output        AUDIO1,                 // right
     output        AUDIO2,                 // left
+`ifdef HDMI
+    output [3:0]  TMDS_P,
+    output [3:0]  TMDS_N,
+`endif
     // SDRAM
     output        SDRAM_CLK,
     output        SDRAM_CKE,
@@ -87,4 +94,22 @@ module top #(
         end
     dac_dsm dac_left (.clk(clk), .rst(rst), .in(left), .out(AUDIO2));
     dac_dsm dac_right (.clk(clk), .rst(rst), .in(right), .out(AUDIO1));
+
+`ifdef HDMI
+    // ---- HDMI: 640x480 at 60 Hz with Paula's audio at 48 kHz (ADR-0010) ----
+    wire       clk_pixel, rst_pixel;
+    wire [9:0] tmds0, tmds1, tmds2;
+    hdmi_out #(.COEFS(COEFS)) hdmi (
+        .clk(clk), .rst(rst),
+        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r),
+        .clk_pixel(clk_pixel), .rst_pixel(rst_pixel),
+        .tmds0(tmds0), .tmds1(tmds1), .tmds2(tmds2),
+        .resampler_overrun(), .fifo_overflow(), .fifo_underflow(), .fifo_primed()
+    );
+    hdmi_phy hdmi_phy (
+        .clk(clk), .clk_pixel(clk_pixel), .rst_pixel(rst_pixel),
+        .tmds0(tmds0), .tmds1(tmds1), .tmds2(tmds2),
+        .TMDS_P(TMDS_P), .TMDS_N(TMDS_N)
+    );
+`endif
 endmodule

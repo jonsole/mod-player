@@ -11,7 +11,8 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test soc-test dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean
+.PHONY: all test hw-test soc-test dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean \
+        coefs-check resampler-test hdmi-test hdmi-chain-test hdmi-board-check
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
 $(BUILD):
@@ -31,7 +32,8 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test soc-test dsm-test fullchip-test board-test firmware-check
+test: $(UNIT_TESTS) all hw-test soc-test dsm-test fullchip-test board-test firmware-check \
+      resampler-test hdmi-test hdmi-chain-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command and pt2-clone oracle"; python3 -m unittest tests.test_render tests.test_oracle
 
@@ -185,3 +187,95 @@ synth-check: $(BUILD)/fw/firmware0.hex
 	@echo "Spartan-6 resources (Yosys estimate; the XC6SLX25 has 15032 LUTs, 30064 flip-flops,"
 	@echo "38 DSP48A1 and 52 RAMB16):"
 	@python3 tools/yosys_stats.py $(BUILD)/yosys.log
+
+# ---- HDMI Resampler (ADR-0010) ------------------------------------------------
+# The coefficient table is generated once and committed; this checks it is
+# what tools/resampler_coefs.py makes.
+coefs-check: | $(BUILD)
+	@python3 tools/resampler_coefs.py $(BUILD)/resampler_coefs.h $(BUILD)/resampler_coefs.hex >/dev/null
+	@cmp -s $(BUILD)/resampler_coefs.h host/resampler_coefs.h && cmp -s $(BUILD)/resampler_coefs.hex hw/rtl/resampler_coefs.hex || \
+	  { echo "resampler coefficients are out of date: run tools/resampler_coefs.py host/resampler_coefs.h hw/rtl/resampler_coefs.hex"; exit 1; }
+	@echo "== resampler coefficients are up to date"
+
+$(BUILD)/resampler_tb: hw/rtl/resampler.v hw/rtl/resampler_coefs.hex hw/sim/resampler_tb.cpp $(SIM_C) host/resampler.c \
+		$(wildcard firmware/replayer/*.h host/*.h) | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module resampler -GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' hw/rtl/resampler.v \
+		$(CURDIR)/hw/sim/resampler_tb.cpp $(addprefix $(CURDIR)/,$(SIM_C) host/resampler.c) \
+		-CFLAGS "-O2 -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
+		-Mdir $(BUILD)/obj_resampler -o resampler_tb >$(BUILD)/resampler_tb.log 2>&1 || (cat $(BUILD)/resampler_tb.log; false)
+	cp $(BUILD)/obj_resampler/resampler_tb $@
+
+# Verilog Resampler vs the C model: noise, full-scale squares, and every
+# generated and real Song (options cycling), run in parallel.
+RESAMPLER_SECONDS ?= 2
+resampler-test: $(BUILD)/resampler_tb coefs-check
+	@rm -rf $(BUILD)/songs && python3 tools/modgen.py $(BUILD)/songs >/dev/null
+	@(for s in 1 2 3 4; do echo "--noise $$s 1"; done; echo "--square 1"; \
+	  i=0; for m in $(BUILD)/songs/*.mod tests/songs/*.mod; do \
+		echo "$$m $(RESAMPLER_SECONDS) $$((i % 8))"; i=$$((i + 1)); done) \
+		| sed 's|^|$(BUILD)/resampler_tb |' > $(BUILD)/resampler_cmds
+	@xargs -P $(JOBS) -L 1 sh -c '"$$0" "$$@"' < $(BUILD)/resampler_cmds > $(BUILD)/resampler_results; \
+		status=$$?; cat $(BUILD)/resampler_results; \
+		echo "Verilog Resampler: $$(grep -c ': ok' $(BUILD)/resampler_results) of $$(wc -l < $(BUILD)/resampler_cmds) runs match the C model"; \
+		exit $$status
+
+# ---- HDMI transmitter (ADR-0010) ------------------------------------------------
+HDMI_RTL := hw/rtl/hdmi_tx.v hw/rtl/tmds_encoder.v
+
+$(BUILD)/hdmi_tb: $(HDMI_RTL) hw/sim/hdmi_tb.cpp hw/sim/hdmi_sink.h | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module hdmi_tx $(HDMI_RTL) $(CURDIR)/hw/sim/hdmi_tb.cpp \
+		-CFLAGS "-O2 -I$(CURDIR)/hw/sim" \
+		-Mdir $(BUILD)/obj_hdmi -o hdmi_tb >$(BUILD)/hdmi_tb.log 2>&1 || (cat $(BUILD)/hdmi_tb.log; false)
+	cp $(BUILD)/obj_hdmi/hdmi_tb $@
+
+$(BUILD)/tmds_tb: hw/rtl/tmds_encoder.v hw/sim/tmds_tb.cpp | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module tmds_encoder hw/rtl/tmds_encoder.v $(CURDIR)/hw/sim/tmds_tb.cpp \
+		-Mdir $(BUILD)/obj_tmds -o tmds_tb >$(BUILD)/tmds_tb.log 2>&1 || (cat $(BUILD)/tmds_tb.log; false)
+	cp $(BUILD)/obj_tmds/tmds_tb $@
+
+# The TMDS encoder on random bytes; then the transmitter's output, decoded
+# as a sink would, checked against the HDMI rules
+$(BUILD)/serialiser_tb: hw/board/minispartan6/hdmi_phy.v hw/sim/serialiser_tb.cpp | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module tmds_serialiser hw/board/minispartan6/hdmi_phy.v \
+		hw/board/minispartan6/sim_hdmi_primitives.v hw/board/minispartan6/sim_primitives.v $(CURDIR)/hw/sim/serialiser_tb.cpp \
+		-Mdir $(BUILD)/obj_serialiser -o serialiser_tb >$(BUILD)/serialiser_tb.log 2>&1 || (cat $(BUILD)/serialiser_tb.log; false)
+	cp $(BUILD)/obj_serialiser/serialiser_tb $@
+
+hdmi-test: $(BUILD)/tmds_tb $(BUILD)/hdmi_tb $(BUILD)/serialiser_tb
+	$(BUILD)/tmds_tb 1 2000000
+	$(BUILD)/hdmi_tb 4
+	$(BUILD)/serialiser_tb
+
+# The whole HDMI audio chain on two clocks: Songs' Paula frames in, decoded
+# HDMI audio out, equal to the Resampler C model's output
+HDMI_OUT_RTL := hw/rtl/hdmi_out.v hw/rtl/resampler.v hw/rtl/hdmi_audio_fifo.v $(HDMI_RTL)
+$(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/sim/hdmi_chain_tb.cpp hw/sim/hdmi_sink.h \
+		$(SIM_C) host/resampler.c $(wildcard firmware/replayer/*.h host/*.h) | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module hdmi_out -GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' $(HDMI_OUT_RTL) \
+		$(CURDIR)/hw/sim/hdmi_chain_tb.cpp $(addprefix $(CURDIR)/,$(SIM_C) host/resampler.c) \
+		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
+		-Mdir $(BUILD)/obj_hdmi_chain -o hdmi_chain_tb >$(BUILD)/hdmi_chain_tb.log 2>&1 || (cat $(BUILD)/hdmi_chain_tb.log; false)
+	cp $(BUILD)/obj_hdmi_chain/hdmi_chain_tb $@
+
+HDMI_CHAIN_SECONDS ?= 2
+hdmi-chain-test: $(BUILD)/hdmi_chain_tb
+	@rm -rf $(BUILD)/songs && python3 tools/modgen.py $(BUILD)/songs >/dev/null
+	@(echo "tests/songs/gods.mod $(HDMI_CHAIN_SECONDS) 7"; echo "$(BUILD)/songs/vibrato.mod $(HDMI_CHAIN_SECONDS) 0"; \
+	  echo "$(BUILD)/songs/retrigger.mod $(HDMI_CHAIN_SECONDS) 2") | sed 's|^|$(BUILD)/hdmi_chain_tb |' > $(BUILD)/hdmi_chain_cmds
+	@xargs -P $(JOBS) -L 1 sh -c '"$$0" "$$@"' < $(BUILD)/hdmi_chain_cmds > $(BUILD)/hdmi_chain_results; \
+		status=$$?; cat $(BUILD)/hdmi_chain_results; exit $$status
+
+# The board top level with HDMI (`define HDMI): Verilator lint, then a Yosys
+# synthesis for resource use (the ISE build is build.bat hdmi)
+HDMI_BOARD_RTL := $(BOARD_RTL) $(HDMI_OUT_RTL) hw/board/minispartan6/hdmi_phy.v
+hdmi-board-check: $(BUILD)/fw/firmware0.hex
+	$(VERILATOR) --lint-only -Wno-fatal -Wno-lint -Wno-style +define+HDMI --top-module top \
+		$(HDMI_BOARD_RTL) hw/board/minispartan6/sim_hdmi_primitives.v 2>&1 | grep -E '%Error' && exit 1 || true
+	@echo "read_verilog -DHDMI $(addprefix $(CURDIR)/,$(filter-out %sim_primitives.v,$(HDMI_BOARD_RTL)))" > $(BUILD)/synth_hdmi.ys
+	@echo "synth_xilinx -family xc6s -top top" >> $(BUILD)/synth_hdmi.ys
+	@echo "stat" >> $(BUILD)/synth_hdmi.ys
+	cp hw/rtl/resampler_coefs.hex $(BUILD)/fw/
+	cd $(BUILD)/fw && yosys -q -l ../yosys_hdmi.log -s ../synth_hdmi.ys >/dev/null
+	@echo "Spartan-6 resources with HDMI (Yosys estimate; the XC6SLX25 has 15032 LUTs, 30064 flip-flops,"
+	@echo "38 DSP48A1 and 52 RAMB16):"
+	@python3 tools/yosys_stats.py $(BUILD)/yosys_hdmi.log

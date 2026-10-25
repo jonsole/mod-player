@@ -1,0 +1,23 @@
+# HDMI output (J3) for the HDMI build (build.bat hdmi), added to top.ucf.
+# Pins from Scarab's miniSpartan6-plus.ucf. Its comments call pair 1 red
+# and pair 2 green, but Scarab's own HDMI example swaps its signals back,
+# so the pairs are the standard order: 0 blue, 1 green, 2 red, 3 clock.
+
+NET "TMDS_P<0>" LOC = "C13" | IOSTANDARD = TMDS_33;   # blue
+NET "TMDS_N<0>" LOC = "A13" | IOSTANDARD = TMDS_33;
+NET "TMDS_P<1>" LOC = "B12" | IOSTANDARD = TMDS_33;   # green
+NET "TMDS_N<1>" LOC = "A12" | IOSTANDARD = TMDS_33;
+NET "TMDS_P<2>" LOC = "C11" | IOSTANDARD = TMDS_33;   # red
+NET "TMDS_N<2>" LOC = "A11" | IOSTANDARD = TMDS_33;
+NET "TMDS_P<3>" LOC = "B14" | IOSTANDARD = TMDS_33;   # clock
+NET "TMDS_N<3>" LOC = "A14" | IOSTANDARD = TMDS_33;
+
+# The 25.2 and 126 MHz clocks get PERIOD constraints derived from TS_clk50
+# through the DCM and PLL automatically, but only while "clk50" is used by
+# nothing but its PERIOD; so the false paths below use their own groups on
+# the system and pixel clock nets. The audio FIFO between those clocks is a
+# Gray-coded dual-clock FIFO (hw/rtl/hdmi_audio_fifo.v): no timing relation.
+NET "clk" TNM_NET = "sys_clk";
+NET "clk_pixel" TNM_NET = "pixel_clk";
+TIMESPEC "TS_sys_to_pixel" = FROM "sys_clk" TO "pixel_clk" TIG;
+TIMESPEC "TS_pixel_to_sys" = FROM "pixel_clk" TO "sys_clk" TIG;

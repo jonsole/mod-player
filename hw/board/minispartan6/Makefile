@@ -17,6 +17,15 @@ PART    := xc6slx25-ftg256-3
 BUILD   := build
 RTL     := $(addprefix $(ROOT)/hw/rtl/, soc.v bram.v uart_tx.v uart_rx.v sdram_ctrl.v paula.v \
              dac_dsm.v third_party/picorv32/picorv32.v) top.v
+UCF     := top.ucf
+DEFINE  :=
+# make HDMI=1: with HDMI output (ADR-0010), in build-hdmi/
+ifeq ($(HDMI),1)
+BUILD   := build-hdmi
+RTL     += $(addprefix $(ROOT)/hw/rtl/, hdmi_out.v resampler.v hdmi_audio_fifo.v hdmi_tx.v tmds_encoder.v) hdmi_phy.v
+UCF     += hdmi.ucf
+DEFINE  := '-define {HDMI}'
+endif
 FW      := $(ROOT)/build/fw
 
 .PHONY: all firmware prog flash clean
@@ -44,15 +53,16 @@ $(BUILD)/top.xst: Makefile | $(BUILD)
 	  '-opt_level 1' \
 	  '-keep_hierarchy No' \
 	  '-iob auto' \
-	  '-uc ../top.xcf' > $@
+	  '-uc ../top.xcf' $(DEFINE) > $@
 
 $(BUILD)/top.ngc: $(RTL) top.xcf $(BUILD)/top.prj $(BUILD)/top.xst firmware
 	cp $(FW)/firmware0.hex $(FW)/firmware1.hex $(FW)/firmware2.hex $(FW)/firmware3.hex $(BUILD)/
+	cp $(ROOT)/hw/rtl/resampler_coefs.hex $(BUILD)/
 	mkdir -p $(BUILD)/xst_tmp $(BUILD)/xst_hdp
 	cd $(BUILD) && xst -ifn top.xst -ofn top.srp
 
-$(BUILD)/top.ngd: $(BUILD)/top.ngc top.ucf
-	cd $(BUILD) && ngdbuild -uc ../top.ucf -p $(PART) top.ngc top.ngd
+$(BUILD)/top.ngd: $(BUILD)/top.ngc $(UCF)
+	cd $(BUILD) && ngdbuild $(addprefix -uc ../,$(UCF)) -p $(PART) top.ngc top.ngd
 
 # -pr b packs the SDRAM pin registers into the I/O blocks
 $(BUILD)/top_map.ncd: $(BUILD)/top.ngd
