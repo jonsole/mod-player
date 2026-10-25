@@ -17,8 +17,8 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 
 ## Git
 
-- All work is on branch **`claude/amazing-turing-qjhzlh`** (pushed; nothing on `main` yet). Check it out: `git fetch && git checkout claude/amazing-turing-qjhzlh`.
-- No pull request has been opened. Issues #1–#15 are complete in code but still open on GitHub; they would close naturally when this branch is merged (or close them by hand).
+- **`main`** holds all the work (pushed 2026-10-25, the same commits as branch `claude/amazing-turing-qjhzlh`). GitHub's default branch is still the `claude/...` one; switch it to `main` in the repo settings.
+- Issues #1–#15 and #17–#19 are complete in code but still open on GitHub; close them by hand. The plan from here is #20–#23 (boot loader, then the status screen), all sub-issues of #1.
 - Commit messages: imperative subject, short body explaining why.
 
 ## The immediate next step
