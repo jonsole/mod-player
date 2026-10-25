@@ -1,6 +1,6 @@
 # Amiga MOD player for the Scarab miniSpartan6+
 
-Read `GLOSSARY.md` for project vocabulary and `docs/adr/` for decisions already made before changing anything.
+Read `docs/HANDOFF.md` for where the project stands and what to do next. Read `GLOSSARY.md` for project vocabulary and `docs/adr/` for decisions already made before changing anything.
 
 ## Agent skills
 
