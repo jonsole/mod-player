@@ -4,6 +4,9 @@
     python3 tools/modplayer.py [--port PORT] play | stop | pause | info | version | flash-id
     python3 tools/modplayer.py [--port PORT] flash-write top.bit   (the FPGA image, to boot from)
     python3 tools/modplayer.py [--port PORT] save song.mod | forget  (the Song played at power-on)
+    python3 tools/modplayer.py [--port PORT] firmware firmware.bin [--save]
+                                     (run new firmware now; --save also keeps it in flash)
+    python3 tools/modplayer.py [--port PORT] boot   (back to the boot loader)
 
 PORT defaults to /dev/ttyUSB1 (the FT2232H's second port on Linux; on
 Windows something like COM4). Needs pyserial (pip install pyserial).
@@ -29,7 +32,7 @@ def encode_play_from_memory(length):
 
 
 SIMPLE = {"version": b"V", "play": b"P", "stop": b"S", "pause": b"U", "info": b"I",
-          "flash-id": b"F"}
+          "flash-id": b"F", "boot": b"B"}
 
 
 def encode_flash_write(addr, data):
@@ -63,6 +66,31 @@ def encode_forget():
     return encode_flash_write(SAVED_SONG_ADDR, bytes(16))
 
 
+# The firmware the boot loader runs (ADR-0011; firmware/flash.h, firmware/hw.h)
+FIRMWARE_ADDR = 0x100000
+FIRMWARE_MAGIC = b"MODF"
+FIRMWARE_MAX = 0xF000          # the firmware RAM below the boot loader
+
+
+def firmware_record(image):
+    """What goes in the firmware region of flash: MODF, length, CRC-32,
+    4 zero bytes, then the firmware image (linked to run at address 0)."""
+    if len(image) > FIRMWARE_MAX:
+        raise ValueError("firmware too large (%d bytes; at most %d)" % (len(image), FIRMWARE_MAX))
+    return FIRMWARE_MAGIC + struct.pack("<II", len(image), zlib.crc32(image)) + bytes(4) + image
+
+
+def encode_run_firmware(image):
+    """To the boot loader: X, length, the firmware image, CRC-32. It loads
+    the image at address 0 and runs it."""
+    return b"X" + struct.pack("<I", len(image)) + image + struct.pack("<I", zlib.crc32(image))
+
+
+def encode_save_firmware(image):
+    """To the firmware: write a firmware record to flash for the boot loader."""
+    return encode_flash_write(FIRMWARE_ADDR, firmware_record(image))
+
+
 def encode_flash_crc(addr, length):
     """CRC-32 of a flash range: C, address, length."""
     return b"C" + struct.pack("<II", addr, length)
@@ -93,7 +121,7 @@ def bit_to_flash_image(bit):
 
 
 def encode_simple(name):
-    """version, play, stop, pause, info or flash-id."""
+    """version, play, stop, pause, info, flash-id or boot."""
     return SIMPLE[name]
 
 
@@ -111,13 +139,90 @@ def read_reply(ser, timeout=10.0):
     raise TimeoutError("no reply from the board (lines so far: %r)" % lines)
 
 
+def read_until(ser, wanted, timeout=10.0):
+    """Returns the lines up to and including the one that is `wanted`, or
+    up to an ERR or FAIL line."""
+    lines, buf, deadline = [], b"", time.time() + timeout
+    while time.time() < deadline:
+        buf += ser.read(ser.in_waiting or 1)
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            text = line.decode("latin-1").rstrip("\r")
+            lines.append(text)
+            if text == wanted or text.startswith("ERR") or "FAIL" in text:
+                return lines
+    raise TimeoutError("no %r from the board (lines so far: %r)" % (wanted, lines))
+
+
+def enter_boot_loader(ser, timeout=20.0):
+    """Sends B every 50 ms until the boot loader answers: the running
+    firmware jumps to it, and a boot loader just starting (after a JTAG
+    reload, say) stays in it. Then drops the extra answers. Returns whether
+    it answered."""
+    buf, deadline = b"", time.time() + timeout
+    while time.time() < deadline:
+        ser.write(SIMPLE["boot"])
+        time.sleep(0.05)
+        buf += ser.read(ser.in_waiting)
+        if b"OK boot loader" in buf:
+            time.sleep(0.1)
+            ser.reset_input_buffer()
+            return True
+    return False
+
+
+def wait_until_listening(ser, tries=10):
+    """After "ready" the firmware may still be busy (loading a saved Song
+    from flash), and bytes sent then are lost. Sends V until it answers,
+    then drops any late answer. Returns whether it answered."""
+    for _ in range(tries):
+        ser.write(SIMPLE["version"])
+        try:
+            if read_reply(ser, timeout=1.0)[-1].startswith("OK mod-player"):
+                time.sleep(0.1)
+                ser.reset_input_buffer()
+                return True
+        except TimeoutError:
+            pass
+    return False
+
+
+def run_firmware(ser, image, save=False):
+    """Back to the boot loader, send the firmware and wait for it to come
+    up; then, with save, write it to flash. Returns the board's lines."""
+    if not enter_boot_loader(ser):
+        return ["ERR no answer from the boot loader: reload the FPGA image (build.bat prog) "
+                "while this is waiting"]
+    lines = ["OK boot loader"]
+    print("sending firmware (%d bytes)" % len(image))
+    ser.write(encode_run_firmware(image))
+    # OK running, then the firmware's start-up lines (the SDRAM test takes a few seconds)
+    lines += read_until(ser, "ready", timeout=len(image) * 10 / BAUD + 30)
+    if lines[-1] != "ready":
+        lines.append("ERR the firmware didn't start")
+        return lines
+    if save:
+        record = firmware_record(image)
+        if not wait_until_listening(ser):
+            lines.append("ERR the firmware doesn't answer after start-up")
+            return lines
+        print("saving it to flash")
+        ser.write(encode_save_firmware(image))
+        lines += read_reply(ser, timeout=len(record) * 10 / BAUD + 30)
+    elif lines[-1] == "ready":
+        lines.append("OK running (not saved: power-off brings back the flash firmware)")
+    return lines
+
+
 def main(argv):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--port", default="/dev/ttyUSB1")
-    p.add_argument("command", choices=["load", "flash-write", "save", "forget"] + sorted(SIMPLE))
+    p.add_argument("command", choices=["load", "flash-write", "save", "forget", "firmware"] + sorted(SIMPLE))
     p.add_argument("file", nargs="?")
     p.add_argument("--addr", type=lambda s: int(s, 0), default=0,
                    help="flash-write: flash address (default 0, where the FPGA boots from)")
+    p.add_argument("--save", action="store_true",
+                   help="firmware: also write it to flash, for the boot loader to run at power-on")
     args = p.parse_args(argv[1:])
     try:
         import serial
@@ -132,6 +237,13 @@ def main(argv):
             print("sending %s (%d bytes, about %.1f s)" % (args.file, len(data), len(data) * 10 / BAUD))
             ser.write(encode_load(data))
             lines = read_reply(ser, timeout=len(data) * 10 / BAUD + 5)
+        elif args.command == "firmware":
+            if not args.file:
+                sys.exit("firmware needs a firmware .bin file")
+            image = open(args.file, "rb").read()
+            if len(image) > FIRMWARE_MAX:
+                sys.exit("%s is %d bytes; the firmware RAM holds %d" % (args.file, len(image), FIRMWARE_MAX))
+            lines = run_firmware(ser, image, args.save)
         elif args.command in ("save", "forget"):
             if args.command == "save":
                 if not args.file:

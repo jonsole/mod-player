@@ -14,6 +14,12 @@
 
 #define CPU_HZ      50000000u
 
+/* Firmware RAM (block RAM at 0, 64 KB): the firmware below BOOT_BASE, the
+ * boot loader above it (ADR-0011). The firmware returns to the boot loader
+ * by jumping to BOOT_FROM_FIRMWARE. */
+#define BOOT_BASE          0xF000u
+#define BOOT_FROM_FIRMWARE (BOOT_BASE + 4u)
+
 #define SDRAM_BASE  0x10000000u
 #define SDRAM_SIZE  (32u << 20)
 

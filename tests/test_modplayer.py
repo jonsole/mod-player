@@ -42,5 +42,74 @@ class BitFiles(unittest.TestCase):
         self.assertEqual(len(frame), 16)
 
 
+class FakeBoard:
+    """Enough of a serial port and a board for run_firmware: the firmware
+    (or a boot loader that only starts listening after `deaf` writes)
+    answers B, X and W as docs/protocol.md says."""
+
+    def __init__(self, deaf=0, busy_after_ready=0):
+        # busy_after_ready: writes lost after start-up, as while the
+        # firmware loads a saved Song from flash
+        self.deaf, self.out, self.written = deaf, b"", []
+        self.busy_after_ready, self.busy = busy_after_ready, 0
+
+    @property
+    def in_waiting(self):
+        return len(self.out)
+
+    def read(self, n):
+        data, self.out = self.out[:n], self.out[n:]
+        return data
+
+    def reset_input_buffer(self):
+        self.out = b""
+
+    def write(self, data):
+        self.written.append(data)
+        if self.deaf:
+            self.deaf -= 1
+        elif self.busy:
+            self.busy -= 1
+        elif data == b"B":
+            self.out += b"OK boot loader 0.1\r\n"
+        elif data == b"V":
+            self.out += b"OK mod-player 0.1\r\n"
+        elif data[:1] == b"X":
+            self.out += b"OK running\r\nmod-player 0.1\r\nsdram ok\r\npaula ok\r\nready\r\n"
+            self.busy = self.busy_after_ready
+        elif data[:1] == b"W":
+            self.out += b"OK written\r\n"
+
+
+class Firmware(unittest.TestCase):
+    def test_firmware_is_sent_to_the_boot_loader_and_saved(self):
+        board = FakeBoard()
+        image = bytes(range(100))
+        lines = modplayer.run_firmware(board, image, save=True)
+        self.assertEqual(lines[-1], "OK written")
+        sent = [w for w in board.written if w not in (b"B", b"V")]
+        self.assertEqual(sent, [modplayer.encode_run_firmware(image), modplayer.encode_save_firmware(image)])
+
+    def test_b_is_repeated_until_the_boot_loader_listens(self):
+        # e.g. broken firmware, then the FPGA reloaded over JTAG
+        board = FakeBoard(deaf=5)
+        lines = modplayer.run_firmware(board, b"\x13" * 8)
+        self.assertTrue(lines[-1].startswith("OK running"), lines)
+        self.assertGreater(board.written.count(b"B"), 5)
+
+    def test_saving_waits_until_the_firmware_answers(self):
+        # found on the board: a saved Song loading after "ready" ate the W
+        board = FakeBoard(busy_after_ready=2)
+        lines = modplayer.run_firmware(board, b"\x13" * 8, save=True)
+        self.assertEqual(lines[-1], "OK written", lines)
+        self.assertEqual(board.written[-1][:1], b"W")
+        self.assertIn(b"V", board.written)
+
+    def test_without_save_nothing_is_written_to_flash(self):
+        board = FakeBoard()
+        modplayer.run_firmware(board, b"\x13" * 8)
+        self.assertFalse(any(w[:1] == b"W" for w in board.written))
+
+
 if __name__ == "__main__":
     unittest.main()

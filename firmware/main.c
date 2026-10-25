@@ -209,6 +209,16 @@ static void play_saved_song(void)
     serial_puts("\r\n");
 }
 
+/* B: back to the boot loader, which replies (ADR-0011). */
+static void enter_boot_loader(void)
+{
+    player_stop();
+    while (UART_STATUS & UART_BUSY)
+        ;
+    __asm__ volatile("jr %0" : : "r"(BOOT_FROM_FIRMWARE));
+    __builtin_unreachable();
+}
+
 static void command(int c)
 {
     uint32_t size;
@@ -251,6 +261,9 @@ static void command(int c)
         break;
     case 'C':
         cmd_flash_crc();
+        break;
+    case 'B':
+        enter_boot_loader();
         break;
     default:
         reply_err("unknown command");

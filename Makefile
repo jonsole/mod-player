@@ -11,7 +11,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test soc-test dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean \
+.PHONY: all test hw-test soc-test boot-test dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean \
         coefs-check resampler-test hdmi-test hdmi-chain-test hdmi-board-check flash-model-test
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
@@ -32,7 +32,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test flash-model-test soc-test dsm-test fullchip-test board-test firmware-check \
+test: $(UNIT_TESTS) all hw-test flash-model-test soc-test boot-test dsm-test fullchip-test board-test firmware-check \
       resampler-test hdmi-test hdmi-chain-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command, pt2-clone oracle, PC script"; python3 -m unittest tests.test_render tests.test_oracle tests.test_modplayer
@@ -81,7 +81,7 @@ RV_PREFIX ?= riscv64-unknown-elf-
 RV_CFLAGS := -march=rv32im -mabi=ilp32 -Os -ffreestanding -nostdlib -Wall -Wextra -Werror \
              -ffunction-sections -fdata-sections -Ifirmware -Ifirmware/replayer
 FW_SRC    := firmware/runtime/start.S firmware/runtime/libc.c $(wildcard firmware/*.c) $(REPLAYER_SRC)
-FW_WORDS  := 8192
+FW_WORDS  := 16384
 
 $(BUILD)/fw/firmware.elf: $(FW_SRC) firmware/runtime/link.ld $(wildcard firmware/*.h firmware/replayer/*.h) | $(BUILD)
 	mkdir -p $(BUILD)/fw
@@ -92,17 +92,36 @@ $(BUILD)/fw/firmware0.hex: $(BUILD)/fw/firmware.elf tools/bin2lanes.py
 	$(RV_PREFIX)objcopy -O binary $< $(BUILD)/fw/firmware.bin
 	python3 tools/bin2lanes.py $(BUILD)/fw/firmware.bin $(FW_WORDS) $(BUILD)/fw/firmware
 
-firmware: $(BUILD)/fw/firmware0.hex
+# The boot loader (ADR-0011): at 0xF000, the top 4 KB of the same RAM. Its
+# RAM image (boot0..3.hex) is what the FPGA image holds; it loads
+# firmware.bin from flash or serial. Firmware lives at address 0, so writes
+# through a "null" pointer are meant: -fno-delete-null-pointer-checks.
+BOOT_SRC  := firmware/boot/start.S firmware/boot/boot.c firmware/runtime/libc.c \
+             firmware/serial.c firmware/crc32.c firmware/flash.c
 
-# A ready-built copy of the firmware is kept with the board files, so the FPGA
-# can be built (e.g. with ISE on Windows) without a RISC-V compiler.
+$(BUILD)/fw/boot.elf: $(BOOT_SRC) firmware/boot/link.ld $(wildcard firmware/*.h) | $(BUILD)
+	mkdir -p $(BUILD)/fw
+	$(RV_PREFIX)gcc $(RV_CFLAGS) -fno-delete-null-pointer-checks -T firmware/boot/link.ld \
+		-Wl,--gc-sections,--no-warn-rwx-segments -o $@ $(BOOT_SRC) -lgcc
+	$(RV_PREFIX)size $@
+
+$(BUILD)/fw/boot0.hex: $(BUILD)/fw/boot.elf tools/bin2lanes.py
+	$(RV_PREFIX)objcopy -O binary $< $(BUILD)/fw/boot.bin
+	python3 tools/bin2lanes.py $(BUILD)/fw/boot.bin $(FW_WORDS) $(BUILD)/fw/boot 0xF000
+
+firmware: $(BUILD)/fw/firmware0.hex $(BUILD)/fw/boot0.hex
+
+# A ready-built copy is kept with the board files, so the FPGA can be built
+# (e.g. with ISE on Windows) without a RISC-V compiler: the boot loader's RAM
+# image for the FPGA build, and firmware.bin for modplayer.py firmware.
 # `make board-firmware` refreshes it; `make test` checks it is up to date.
 BOARD_FW := hw/board/minispartan6/firmware
+BOARD_FW_FILES := boot0.hex boot1.hex boot2.hex boot3.hex firmware.bin
 board-firmware: firmware
-	cp $(BUILD)/fw/firmware0.hex $(BUILD)/fw/firmware1.hex $(BUILD)/fw/firmware2.hex $(BUILD)/fw/firmware3.hex $(BOARD_FW)/
+	cp $(addprefix $(BUILD)/fw/,$(BOARD_FW_FILES)) $(BOARD_FW)/
 
 firmware-check: firmware
-	@for n in 0 1 2 3; do cmp -s $(BUILD)/fw/firmware$$n.hex $(BOARD_FW)/firmware$$n.hex || \
+	@for f in $(BOARD_FW_FILES); do cmp -s $(BUILD)/fw/$$f $(BOARD_FW)/$$f || \
 	  { echo "$(BOARD_FW) is out of date: run 'make board-firmware' and commit it"; exit 1; }; done
 	@echo "== ready-built board firmware is up to date"
 
@@ -130,6 +149,19 @@ $(BUILD)/soc_tb_fast: $(SOC_TB_DEPS) | $(BUILD)
 soc-test: $(BUILD)/soc_tb
 	$(BUILD)/soc_tb "ready"
 	python3 -m unittest tests.test_soc
+
+# The SoC as the FPGA image has it: only the boot loader in RAM, started at
+# its power-on entry (issue #20)
+$(BUILD)/soc_boot_tb: $(SOC_TB_DEPS) $(BUILD)/fw/boot0.hex | $(BUILD)
+	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module soc \
+		$(foreach n,0 1 2 3,-GFW$(n)='"$(CURDIR)/$(BUILD)/fw/boot$(n).hex"') -GRESET_ADDR=61440 \
+		$(SOC_RTL) $(CURDIR)/hw/sim/soc_tb.cpp $(addprefix $(CURDIR)/,$(SIM_C)) \
+		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
+		-Mdir $(BUILD)/obj_soc_boot -o soc_tb >$(BUILD)/soc_boot_tb.log 2>&1 || (cat $(BUILD)/soc_boot_tb.log; false)
+	cp $(BUILD)/obj_soc_boot/soc_tb $@
+
+boot-test: $(BUILD)/soc_boot_tb $(BUILD)/fw/firmware0.hex
+	python3 -m unittest tests.test_boot
 
 # ---- delta-sigma audio output ------------------------------------------------
 $(BUILD)/dsm_tb: hw/rtl/dac_dsm.v hw/sim/dsm_tb.cpp | $(BUILD)
@@ -179,7 +211,7 @@ board-test: $(BUILD)/board_tb
 
 # Synthesis check with Yosys for Spartan-6 (a stand-in for XST: catches
 # constructs that don't synthesise and reports resource use)
-synth-check: $(BUILD)/fw/firmware0.hex
+synth-check: $(BUILD)/fw/boot0.hex
 	@echo "read_verilog $(addprefix $(CURDIR)/,$(filter-out %sim_primitives.v,$(BOARD_RTL)))" > $(BUILD)/synth.ys
 	@echo "synth_xilinx -family xc6s -top top" >> $(BUILD)/synth.ys
 	@echo "stat" >> $(BUILD)/synth.ys
@@ -269,7 +301,7 @@ hdmi-chain-test: $(BUILD)/hdmi_chain_tb
 # The board top level with HDMI (`define HDMI): Verilator lint, then a Yosys
 # synthesis for resource use (the ISE build is build.bat hdmi)
 HDMI_BOARD_RTL := $(BOARD_RTL) $(HDMI_OUT_RTL) hw/board/minispartan6/hdmi_phy.v
-hdmi-board-check: $(BUILD)/fw/firmware0.hex
+hdmi-board-check: $(BUILD)/fw/boot0.hex
 	$(VERILATOR) --lint-only -Wno-fatal -Wno-lint -Wno-style +define+HDMI --top-module top \
 		$(HDMI_BOARD_RTL) hw/board/minispartan6/sim_hdmi_primitives.v 2>&1 | grep -E '%Error' && exit 1 || true
 	@echo "read_verilog -DHDMI $(addprefix $(CURDIR)/,$(filter-out %sim_primitives.v,$(HDMI_BOARD_RTL)))" > $(BUILD)/synth_hdmi.ys

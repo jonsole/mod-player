@@ -63,3 +63,10 @@ _Avoid_: frequency, pitch value
 **Soft CPU**:
 The small RISC-V processor built from FPGA logic that runs the Replayer and loader.
 _Avoid_: MCU, core, processor
+
+**Firmware**:
+The Soft CPU's program: self-tests, the serial commands and the Replayer. Kept in flash and run by the Boot loader.
+
+**Boot loader**:
+The small program the FPGA image starts, in the top 4 KB of the Soft CPU's RAM. It runs the Firmware from flash, or Firmware the PC sends over serial (ADR-0011).
+_Avoid_: bootstrap, ROM monitor

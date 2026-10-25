@@ -5,8 +5,12 @@ The board's flash is a Macronix MX25L6406: 8 MB in 4 KB sectors (ADR-0006, issue
 | Address | Size | Holds | Written by |
 | --- | --- | --- | --- |
 | `0x000000` | 1 MB | FPGA image: an ISE `.bit` file's configuration data. The FPGA loads it at power-on; the XC6SLX25's is 801 KB | `modplayer.py flash-write top.bit` |
-| `0x100000` | 1 MB | Firmware, for the boot loader (issue #20); unused for now | |
+| `0x100000` | 1 MB | Firmware, which the boot loader runs at power-on (ADR-0011) | `modplayer.py firmware --save firmware.bin` |
 | `0x200000` | 6 MB | Saved Song, played at power-on | `modplayer.py save song.mod`; `modplayer.py forget` removes it |
+
+## Firmware
+
+The same 16-byte header shape as the saved Song below, with `MODF` instead of `MODS`, then the firmware image (`firmware.bin`, linked to run at address 0, at most 61440 bytes). At power-on the boot loader copies the image to address 0, checks the CRC and runs it. With no `MODF` there, or a length out of range, it prints `no firmware in flash: waiting for serial`; a wrong CRC prints `firmware in flash damaged: waiting for serial`. Either way it then waits for firmware from the PC (`docs/protocol.md`, Boot loader).
 
 ## Saved Song
 

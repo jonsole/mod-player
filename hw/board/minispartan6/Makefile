@@ -2,16 +2,17 @@
 # (ADR-0004), from the command line. Run on a machine with ISE installed:
 #
 #   source /opt/Xilinx/14.7/ISE_DS/settings64.sh
-#   make            # -> build/top.bit (firmware built into the block RAM)
+#   make            # -> build/top.bit (the boot loader built into the block RAM)
 #   make prog       # load it into the FPGA over JTAG with openFPGALoader
-#   make flash      # write it to the SPI flash so it loads at power-on
-#                   # (through the firmware over serial: PORT=/dev/ttyUSB1)
+#   make flash      # write it and the firmware to the SPI flash so they load
+#                   # at power-on (through the firmware over serial: PORT=/dev/ttyUSB1)
 #
 # On Windows, use build.bat instead (same steps, no make or RISC-V compiler).
 #
-# The firmware is built first by the main Makefile (RISC-V GCC); its
-# block-RAM files are copied next to the XST run, where top.v's
-# $readmemh calls find them.
+# The boot loader and firmware are built first by the main Makefile (RISC-V
+# GCC); the boot loader's block-RAM files are copied next to the XST run,
+# where top.v's $readmemh calls find them. The firmware itself is loaded by
+# the boot loader, from flash or serial (ADR-0011).
 
 ROOT    := ../../..
 PART    := xc6slx25-ftg256-3
@@ -57,7 +58,7 @@ $(BUILD)/top.xst: Makefile | $(BUILD)
 	  '-uc ../top.xcf' $(DEFINE) > $@
 
 $(BUILD)/top.ngc: $(RTL) top.xcf $(BUILD)/top.prj $(BUILD)/top.xst firmware
-	cp $(FW)/firmware0.hex $(FW)/firmware1.hex $(FW)/firmware2.hex $(FW)/firmware3.hex $(BUILD)/
+	cp $(FW)/boot0.hex $(FW)/boot1.hex $(FW)/boot2.hex $(FW)/boot3.hex $(BUILD)/
 	cp $(ROOT)/hw/rtl/resampler_coefs.hex $(BUILD)/
 	mkdir -p $(BUILD)/xst_tmp $(BUILD)/xst_hdp
 	cd $(BUILD) && xst -ifn top.xst -ofn top.srp
@@ -83,12 +84,13 @@ prog: $(BUILD)/top.bit
 	openFPGALoader -b minispartan6 $(BUILD)/top.bit
 
 # openFPGALoader can't write this board's flash (docs/board.md, SPI flash), so
-# load the image, let its firmware boot, and have the firmware write the
-# flash over serial. PORT is the board's serial port.
+# load the image, send its boot loader the firmware (saving that to flash),
+# and have the firmware write the image to flash over serial. PORT is the
+# board's serial port.
 PORT ?= /dev/ttyUSB1
-flash: $(BUILD)/top.bit
+flash: $(BUILD)/top.bit firmware
 	openFPGALoader -b minispartan6 $(BUILD)/top.bit
-	sleep 2
+	python3 $(ROOT)/tools/modplayer.py --port $(PORT) firmware --save $(FW)/firmware.bin
 	python3 $(ROOT)/tools/modplayer.py --port $(PORT) flash-write $(BUILD)/top.bit
 
 $(BUILD):

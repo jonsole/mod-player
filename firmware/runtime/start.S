@@ -1,6 +1,6 @@
-/* Reset entry: set the stack, clear .bss, run main. The block RAM is loaded
- * with the whole image (code and initialised data) at configuration, so
- * there is nothing to copy. */
+/* Entry: set the stack, clear .bss, run main. The boot loader (or, in the
+ * simulations, the block RAM's initial contents) puts the whole image (code
+ * and initialised data) at address 0, so there is nothing to copy. */
     .section .text.start
     .global _start
 _start:

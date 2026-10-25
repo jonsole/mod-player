@@ -11,10 +11,11 @@
 //   TMDS_P/N    HDMI out (J3), only in the HDMI build (`define HDMI,
 //               build.bat hdmi): pairs 0 blue, 1 green, 2 red, 3 clock
 module top #(
-    parameter FW0 = "firmware0.hex",      // the firmware, one $readmemh file per byte lane
-    parameter FW1 = "firmware1.hex",
-    parameter FW2 = "firmware2.hex",
-    parameter FW3 = "firmware3.hex",
+    parameter FW0 = "boot0.hex",          // the firmware RAM's contents, one $readmemh
+    parameter FW1 = "boot1.hex",          // file per byte lane: just the boot loader,
+    parameter FW2 = "boot2.hex",          // which loads the firmware (ADR-0011)
+    parameter FW3 = "boot3.hex",
+    parameter RESET_ADDR = 32'h0000_F000, // the boot loader's power-on entry
     parameter COEFS = "resampler_coefs.hex"   // HDMI build: the Resampler's table
 ) (
     input         CLK50,
@@ -61,7 +62,7 @@ module top #(
     wire [15:0] sd_dq_o, sd_dq_i;
     wire        audio_valid;
     wire signed [15:0] audio_l, audio_r;
-    soc #(.FW0(FW0), .FW1(FW1), .FW2(FW2), .FW3(FW3)) soc (
+    soc #(.FW0(FW0), .FW1(FW1), .FW2(FW2), .FW3(FW3), .RESET_ADDR(RESET_ADDR)) soc (
         .clk(clk), .rst(rst),
         .uart_tx(FTDI_D1), .uart_rx(FTDI_D0),
         .leds(LEDS), .switches(~SW),

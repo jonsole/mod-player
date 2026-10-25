@@ -12,7 +12,8 @@
 
 /* Layout (docs/flash-layout.md; tools/modplayer.py has the same numbers). */
 #define FLASH_IMAGE_SIZE 0x100000u      /* FPGA image at 0, where the FPGA boots from */
-#define FLASH_FW_ADDR    0x100000u      /* firmware, for the boot loader (issue #20) */
+#define FLASH_FW_ADDR    0x100000u      /* firmware for the boot loader: header, then the image */
+#define FLASH_FW_MAGIC   0x46444F4Du    /* "MODF", read as a little-endian word */
 #define FLASH_SONG_ADDR  0x200000u      /* saved Song: header, then the MOD file */
 #define FLASH_SONG_SIZE  0x600000u
 #define FLASH_SONG_MAGIC 0x53444F4Du    /* "MODS", read as a little-endian word */

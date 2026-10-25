@@ -5,6 +5,9 @@
 //     --max N           give up after N clock cycles (default 60 million)
 //     --after TEXT      wait for TEXT on the serial output before acting
 //     --send FILE       then send FILE's bytes to the board's serial input
+//                       (--after/--send pairs can repeat: each step waits
+//                       for its text after the previous step acted, and the
+//                       expected text must appear after the last step)
 //     --preload FILE    then put FILE's bytes at the start of SDRAM (a
 //                       back door, so long Songs need not crawl over serial)
 //     --switches N      DIP switch setting (bit 0 = SW1)
@@ -96,8 +99,10 @@ int main(int argc, char **argv)
 {
     Verilated::commandArgs(argc, argv);
     long long max_cycles = 60000000LL;
-    const char *after = nullptr, *expect = nullptr;
-    std::vector<uint8_t> to_send, preload;
+    const char *expect = nullptr;
+    struct Step { const char *after; std::vector<uint8_t> send; };
+    std::vector<Step> steps;
+    std::vector<uint8_t> preload;
     int switches = 0, flash_fill = 0xFF;
     std::vector<uint8_t> flash_image;
     std::vector<uint8_t> compare_song;
@@ -105,8 +110,12 @@ int main(int argc, char **argv)
     static Reference ref;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--max") && i + 1 < argc) max_cycles = atoll(argv[++i]);
-        else if (!strcmp(argv[i], "--after") && i + 1 < argc) after = argv[++i];
-        else if (!strcmp(argv[i], "--send") && i + 1 < argc) to_send = read_file(argv[++i]);
+        else if (!strcmp(argv[i], "--after") && i + 1 < argc) steps.push_back({argv[++i], {}});
+        else if (!strcmp(argv[i], "--send") && i + 1 < argc) {
+            if (steps.empty())
+                steps.push_back({nullptr, {}});
+            steps.back().send = read_file(argv[++i]);
+        }
         else if (!strcmp(argv[i], "--preload") && i + 1 < argc) preload = read_file(argv[++i]);
         else if (!strcmp(argv[i], "--switches") && i + 1 < argc) switches = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--flash-fill") && i + 1 < argc) flash_fill = (int)strtol(argv[++i], nullptr, 0);
@@ -133,7 +142,11 @@ int main(int argc, char **argv)
     int rx_timer = -1, rx_index = 0, rx_byte = 0;    // decoding the board's output
     std::deque<uint8_t> tx_queue;                    // bytes for the board's input
     int tx_timer = 0, tx_bit = -1, tx_byte = 0;
-    bool acted = after == nullptr;
+    size_t step = 0, acted_at = 0;     // next step to act; where the text stood when the last one did
+    if (!steps.empty() && !steps[0].after) {
+        tx_queue.assign(steps[0].send.begin(), steps[0].send.end());
+        step = 1;
+    }
     dut->rst = 1;
     dut->uart_rx = 1;
     dut->switches = switches;
@@ -144,14 +157,16 @@ int main(int argc, char **argv)
     for (long long cycle = 0; cycle < max_cycles; cycle++) {
         if (cycle == 10)
             dut->rst = 0;
-        if (!acted && text.find(after) != std::string::npos) {
-            acted = true;
-            for (size_t i = 0; i < preload.size(); i++) {
-                uint16_t &w = sdram.mem[i >> 1];   // the model's word index is the byte address / 2
-                w = (i & 1) ? (uint16_t)((w & 0x00FF) | preload[i] << 8)
-                            : (uint16_t)((w & 0xFF00) | preload[i]);
-            }
-            tx_queue.assign(to_send.begin(), to_send.end());
+        if (step < steps.size() && text.find(steps[step].after, acted_at) != std::string::npos) {
+            if (step == 0)
+                for (size_t i = 0; i < preload.size(); i++) {
+                    uint16_t &w = sdram.mem[i >> 1];   // the model's word index is the byte address / 2
+                    w = (i & 1) ? (uint16_t)((w & 0x00FF) | preload[i] << 8)
+                                : (uint16_t)((w & 0xFF00) | preload[i]);
+                }
+            tx_queue.insert(tx_queue.end(), steps[step].send.begin(), steps[step].send.end());
+            acted_at = text.size();
+            step++;
         }
 
         // serial input: 8N1, one byte straight after another
@@ -229,7 +244,7 @@ int main(int argc, char **argv)
                     printf("FAIL: framing error after byte 0x%02x\n", rx_byte);
                 text += (char)rx_byte;
                 rx_timer = -1;
-                if (acted && text.find(expect) != std::string::npos) {
+                if (step == steps.size() && text.find(expect, acted_at) != std::string::npos) {
                     sdram.finish();
                     printf("serial: %s\n%s: found \"%s\" after %lld cycles (SDRAM: %lld reads, "
                            "%lld writes, %lld refreshes)\n", text.c_str(),

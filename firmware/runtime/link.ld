@@ -1,6 +1,7 @@
-/* Firmware in the 32 KB block RAM at address 0. */
+/* Firmware in the block RAM at address 0, below the boot loader at 0xF000
+ * (BOOT_BASE in hw.h; ADR-0011). */
 ENTRY(_start)
-MEMORY { RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 32K }
+MEMORY { RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 60K }
 
 SECTIONS
 {

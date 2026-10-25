@@ -4,8 +4,8 @@
 // bits 7:0). Plain file names rather than a built-up path, to keep XST
 // happy; the ISE build copies the files next to the XST run.
 module bram #(
-    parameter WORDS = 8192,
-    parameter ADDR_BITS = 13,
+    parameter WORDS = 16384,
+    parameter ADDR_BITS = 14,
     parameter INIT0 = "firmware0.hex",
     parameter INIT1 = "firmware1.hex",
     parameter INIT2 = "firmware2.hex",

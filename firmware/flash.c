@@ -102,14 +102,16 @@ void flash_program(uint32_t addr, const uint8_t *data, uint32_t len)
     }
 }
 
-uint32_t flash_read(uint32_t addr, uint8_t *dst, uint32_t len)
+/* Reads len bytes from addr, storing them at dst if store is set (dst may
+ * be address 0: the boot loader copies firmware there). Returns their CRC. */
+static uint32_t read_range(uint32_t addr, uint8_t *dst, uint32_t len, int store)
 {
     uint32_t crc = 0xFFFFFFFFu;
     select(1);
     command_addr(CMD_READ, addr);
     for (uint32_t i = 0; i < len; i++) {
         uint8_t b = transfer(0);
-        if (dst)
+        if (store)
             dst[i] = b;
         crc = crc32_update(crc, b);
     }
@@ -117,7 +119,12 @@ uint32_t flash_read(uint32_t addr, uint8_t *dst, uint32_t len)
     return ~crc;
 }
 
+uint32_t flash_read(uint32_t addr, uint8_t *dst, uint32_t len)
+{
+    return read_range(addr, dst, len, 1);
+}
+
 uint32_t flash_crc(uint32_t addr, uint32_t len)
 {
-    return flash_read(addr, 0, len);
+    return read_range(addr, 0, len, 0);
 }

@@ -2,7 +2,8 @@
 // on a simple bus.
 //
 // Address map (see firmware/hw.h):
-//   0x0000_0000  firmware RAM (block RAM)
+//   0x0000_0000  firmware RAM (block RAM, 64 KB): firmware below 0xF000, the
+//                boot loader above (ADR-0011)
 //   0x1000_0000  SDRAM, 32 MB
 //   0x2000_0000  serial port: +0 data (write: send a byte; read: take a
 //                received byte), +4 status (bit 0: sending, bit 1: byte
@@ -15,8 +16,10 @@
 module soc #(
     parameter CLK_HZ      = 50000000,
     parameter BAUD        = 1000000,
-    parameter RAM_WORDS   = 8192,           // 32 KB
-    parameter RAM_BITS    = 13,
+    parameter RAM_WORDS   = 16384,          // 64 KB
+    parameter RAM_BITS    = 14,
+    parameter RESET_ADDR  = 32'h0000_0000,  // where the CPU starts: the FPGA image
+                                            // starts the boot loader, 32'h0000_F000
     parameter FW0         = "firmware0.hex",  // block-RAM files, one per byte lane
     parameter FW1         = "firmware1.hex",
     parameter FW2         = "firmware2.hex",
@@ -68,7 +71,7 @@ module soc #(
         .BARREL_SHIFTER(1),
         .COMPRESSED_ISA(0),
         .ENABLE_COUNTERS(1),
-        .PROGADDR_RESET(32'h0000_0000),
+        .PROGADDR_RESET(RESET_ADDR),
         .STACKADDR(RAM_WORDS * 4)
     ) cpu (
         .clk(clk), .resetn(!rst),

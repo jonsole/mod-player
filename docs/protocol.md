@@ -16,6 +16,19 @@ Every command is one byte, sometimes followed by binary arguments (little-endian
 | Flash ID | `F`: read the SPI flash's JEDEC ID | `OK flash <manufacturer> <type> <capacity>` in hex, e.g. `OK flash c2 20 17` (the board's Macronix MX25L6406); `00 00 00` or `ff ff ff` means no flash is answering |
 | Flash write | `W`, address (u32), length (u32), the data, CRC-32 of the data (u32). Stops the Song; the address must be a multiple of 4096. The board erases the 4 KB sectors (64 KB blocks where it can) the data covers, programs it and reads it back | `OK written`, or `ERR <reason>` (checksum mismatch, address, past the end of the flash, or `flash doesn't read back as written`) after the whole transfer. Erasing takes up to a few seconds per 64 KB, so allow time |
 | Flash CRC | `C`, address (u32), length (u32) | `OK crc <8 hex digits>`: CRC-32 of that range of flash |
+| Boot loader | `B`: stop the Song and return to the boot loader | `OK boot loader <version>`, from the boot loader |
+
+## Boot loader
+
+The boot loader (ADR-0011) speaks the same framing. At power-on it prints `boot loader <version>`, then waits 200 ms: any byte arriving in that time keeps it in the boot loader (the byte is taken as a command). Otherwise it runs the firmware saved in flash, printing `firmware from flash`, or prints `no firmware in flash: waiting for serial` or `firmware in flash damaged: waiting for serial` and waits for the PC.
+
+| Command | Bytes sent | Reply |
+| --- | --- | --- |
+| Version | `V` | `OK boot loader <version>` |
+| Boot loader | `B` | `OK boot loader <version>` (so `B` is safe to send whether the firmware or the boot loader is running) |
+| Run firmware | `X`, length (u32), the firmware image (linked at address 0, at most 61440 bytes), CRC-32 of the image (u32) | `OK running`, then the firmware starts (`mod-player <version>` ... `ready`); or `ERR timeout`, `ERR checksum mismatch: transfer corrupted`, `ERR firmware too large for its RAM, or empty` |
+
+`modplayer.py firmware firmware.bin` sends `B` then `X` and waits for `ready`; with `--save` it then writes the firmware record to flash with `W` (`docs/flash-layout.md`).
 
 Saving a Song to play at power-on is a flash write of a saved-Song record to its region (`docs/flash-layout.md`). At power-on, after `ready`, the board prints `saved Song: <name>` when it starts playing one.
 

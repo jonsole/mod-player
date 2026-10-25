@@ -11,8 +11,10 @@ rem                      also build.bat hdmi prog
 rem
 rem ISE is looked for in D:\Xilinx\14.7\ISE_DS, then C:\Xilinx\14.7\ISE_DS; set
 rem ISE_DIR to use another folder. prog and flash need openFPGALoader on the
-rem PATH (see docs\board.md). The firmware comes from the firmware folder here,
-rem which the main Makefile keeps up to date, so no RISC-V compiler is needed.
+rem PATH (see docs\board.md). The boot loader (in the image) and the firmware
+rem (firmware.bin, which the boot loader loads) come from the firmware folder
+rem here, which the main Makefile keeps up to date, so no RISC-V compiler is
+rem needed.
 
 setlocal
 set PART=xc6slx25-ftg256-3
@@ -40,7 +42,7 @@ if not exist %OUT% mkdir %OUT%
 cd %OUT%
 if not exist xst_tmp mkdir xst_tmp
 if not exist xst_hdp mkdir xst_hdp
-copy /y ..\firmware\firmware?.hex . >nul || goto fail
+copy /y ..\firmware\boot?.hex . >nul || goto fail
 if defined HDMI copy /y ..\..\..\rtl\resampler_coefs.hex . >nul || goto fail
 
 set RTL=..\..\..\..\hw\rtl
@@ -114,9 +116,10 @@ if /i "%ACTION%"=="prog" (
 if /i "%ACTION%"=="flash" (
   rem openFPGALoader -f can't reach this board's flash (docs\board.md, SPI flash):
   rem the firmware writes it instead, over the serial port.
-  echo openFPGALoader can't write this board's flash. Load the image, then write it with
-  echo the firmware over serial:
+  echo openFPGALoader can't write this board's flash. Load the image, give its boot
+  echo loader the firmware, then have the firmware write the image, over serial:
   echo   build.bat [hdmi] prog
+  echo   py tools\modplayer.py --port COMn firmware --save %HERE%firmware\firmware.bin
   echo   py tools\modplayer.py --port COMn flash-write %HERE%%OUT%\top.bit
   exit /b 1
 )

@@ -9,7 +9,7 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 | 1 | PC reference: Replayer (ProTracker 2.3 port in C), Paula C model, `render` to WAV, pt2-clone oracle | Done; matches pt2-clone write for write |
 | 2 | The chip in simulation: Verilog Paula, PicoRV32 SoC, SDRAM controller, delta-sigma DAC, serial loading, full chip | Done; full chip matches the PC reference sample for sample |
 | 3 | Board build: `top.v`, pins, ISE build (Makefile + `build.bat`) | Done 2026-10-25: built with ISE 14.7 on Windows 11; boots and plays `gods.mod` on the board (issue #16). Fixes and setup notes in `docs/board.md` |
-| 5 | Boot loader, Song saved to flash (ADR-0006) | Not started |
+| 5 | Boot loader, Song saved to flash (ADR-0006, ADR-0011) | Flash writes, saved Song (#17-#19) done and working on the board. Boot loader (#20) done in simulation (`make boot-test`): the FPGA image holds only the boot loader, which runs firmware from flash or serial (`modplayer.py firmware [--save]`). Works on the board, 2026-10-25: firmware sent over serial, saved, and run from flash |
 | 6 | microSD | Not started |
 | 7 | HDMI audio | First step done in simulation and built with ISE (`build.bat hdmi`): 640x480p60, 48 kHz audio through an exact integer Resampler, plain blue screen (ADR-0010). Works on the owner's display (picture and sound), 2026-10-25. Status screen still to do |
 
@@ -47,12 +47,13 @@ Verilator 5.x was used. Useful narrower targets:
 | `make test` | All of the below plus unit tests, render and oracle tests |
 | `make hw-test` | Verilog Paula vs the C model (31 runs incl. fuzz and real-time) |
 | `make soc-test` | Soft CPU + firmware + SDRAM model, memory test, serial loading |
+| `make boot-test` | The SoC as the FPGA image has it: boot loader runs firmware from the flash model or serial |
 | `make fullchip-test` | Whole chip vs PC reference, every test Song |
 | `make dsm-test` | Delta-sigma DAC SNR and idle tones |
 | `make board-test` | `top.v` with pin models: boots and drives left/right correctly |
 | `make synth-check` | Yosys synthesis for Spartan-6, resource estimate (needs yosys) |
 | `make firmware` | RISC-V firmware into `build/fw/` |
-| `make board-firmware` | Refresh the ready-built firmware in `hw/board/minispartan6/firmware/` (commit it; `make test` fails if stale) |
+| `make board-firmware` | Refresh the ready-built boot loader (`boot0..3.hex`) and `firmware.bin` in `hw/board/minispartan6/firmware/` (commit them; `make test` fails if stale) |
 
 Handy tools: `build/render song.mod out.wav` (PC reference audio), `tools/modplayer.py` (board CLI), `tools/modgen.py` (generates test Songs in Python), `tools/compare_logs.py`.
 
@@ -61,6 +62,7 @@ Handy tools: `build/render song.mod out.wav` (PC reference audio), `tools/modpla
 | Path | What |
 |---|---|
 | `firmware/replayer/` | The Replayer: freestanding C, talks to Paula only through `paula_port.h` |
+| `firmware/boot/` | The boot loader: at 0xF000 in the firmware RAM, loads the firmware from flash or serial (ADR-0011) |
 | `firmware/*.c` | Board firmware: `main.c` (boot, self-tests, command loop), `player.c`, `serial.c`, `crc32.c`, `memtest.c`, `hw.h` (address map) |
 | `firmware/runtime/` | Start-up code, linker script, tiny libc |
 | `host/` | PC side: Paula C model, register-write log, `render`, WAV writer |
@@ -70,7 +72,7 @@ Handy tools: `build/render song.mod out.wav` (PC reference audio), `tools/modpla
 | `tests/` | Unit tests, Python test drivers, pt2-clone oracle (`tests/oracle/`), `tests/songs/gods.mod` |
 | `docs/` | ADRs, protocol, board guide, engineering notes, this file |
 
-Key interfaces: Paula's register map is in `GLOSSARY.md` / ADR-0009 (voice registers 0x00–0x3C, DMACON 0x40, LED_FILTER 0x44, OPTIONS 0x48, INVERT 0x4C, then board-only TICK_LEN 0x50, STATUS 0x54, CONTROL 0x58). SoC address map: block RAM 0x0000_0000, SDRAM 0x1000_0000, UART 0x2000_0000, Paula 0x2000_0100, LEDs/switches 0x2000_0200. The serial protocol is `docs/protocol.md`.
+Key interfaces: Paula's register map is in `GLOSSARY.md` / ADR-0009 (voice registers 0x00–0x3C, DMACON 0x40, LED_FILTER 0x44, OPTIONS 0x48, INVERT 0x4C, then board-only TICK_LEN 0x50, STATUS 0x54, CONTROL 0x58). SoC address map: block RAM 0x0000_0000 (64 KB: firmware below 0xF000, boot loader above), SDRAM 0x1000_0000, UART 0x2000_0000, Paula 0x2000_0100, LEDs/switches 0x2000_0200. The serial protocol is `docs/protocol.md`.
 
 ## Rules worth keeping
 
