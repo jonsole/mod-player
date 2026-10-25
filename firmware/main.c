@@ -1,5 +1,6 @@
 /* mod-player firmware: self-test, then serve commands from the PC
  * (docs/protocol.md) while playing. */
+#include "console.h"
 #include "crc32.h"
 #include "flash.h"
 #include "hw.h"
@@ -209,6 +210,55 @@ static void play_saved_song(void)
     serial_puts("\r\n");
 }
 
+/* T: row, column, attribute, length (one byte each), then the text: puts
+ * it on the HDMI text console. */
+static void cmd_text(void)
+{
+    int arg[4];
+    for (int i = 0; i < 4; i++)
+        if ((arg[i] = serial_getc_timeout(TIMEOUT_US)) < 0) {
+            reply_err("timeout");
+            return;
+        }
+    for (int i = 0; i < arg[3]; i++) {
+        int c = serial_getc_timeout(TIMEOUT_US);
+        if (c < 0) {
+            reply_err("timeout");
+            return;
+        }
+        console_put(arg[0], arg[1] + i, (uint8_t)c, (uint8_t)arg[2]);
+    }
+    if (console_present())
+        serial_puts("OK\r\n");
+    else
+        reply_err("no text console (not the HDMI build)");
+}
+
+/* The HDMI screen at power-on: what the self-tests found, and every
+ * character and colour, to check the console by eye. */
+static void draw_test_screen(int paula_ok)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    if (!console_present())
+        return;
+    console_clear(ATTR_NORMAL);
+    console_clear_row(0, 0, ATTR(WHITE, BLUE));
+    console_print(0, 1, "mod-player " VERSION, ATTR(WHITE, BLUE));
+    console_print(1, 1, "sdram ok", ATTR_NORMAL);
+    console_print(1, 11, paula_ok ? "paula ok" : "paula FAIL: no tick", ATTR_NORMAL);
+    for (int i = 0; i < 16; i++) {
+        console_put(3, 4 + 2 * i, (uint8_t)hex[i], ATTR(DARK_GREY, BLACK));
+        console_put(4 + i, 2, (uint8_t)hex[i], ATTR(DARK_GREY, BLACK));
+    }
+    for (int i = 0; i < 256; i++)
+        console_put(4 + i / 16, 4 + 2 * (i % 16), (uint8_t)i, ATTR(WHITE, BLACK));
+    for (int c = 0; c < 16; c++) {
+        console_print(4 + c, 38, "   ", ATTR(BLACK, c));
+        console_print(4 + c, 42, "Text", ATTR(c, BLACK));
+        console_print(4 + c, 47, "Text", ATTR(c, c == WHITE ? BLACK : WHITE));
+    }
+}
+
 /* B: back to the boot loader, which replies (ADR-0011). */
 static void enter_boot_loader(void)
 {
@@ -265,6 +315,9 @@ static void command(int c)
     case 'B':
         enter_boot_loader();
         break;
+    case 'T':
+        cmd_text();
+        break;
     default:
         reply_err("unknown command");
         break;
@@ -289,7 +342,9 @@ int main(void)
     }
     serial_puts("sdram ok\r\n");
     player_init();
-    serial_puts(player_self_test() ? "paula ok\r\n" : "paula FAIL: no tick\r\n");
+    int paula_ok = player_self_test();
+    serial_puts(paula_ok ? "paula ok\r\n" : "paula FAIL: no tick\r\n");
+    draw_test_screen(paula_ok);
     serial_puts("ready\r\n");
     play_saved_song();
     for (;;) {

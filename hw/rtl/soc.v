@@ -10,6 +10,10 @@
 //                waiting, bit 2: receive overrun; write bit 2 to clear)
 //   0x2000_0100  Paula (firmware/replayer/paula_port.h)
 //   0x2000_0200  board I/O: +0 LEDs (write), +4 DIP switches (read, 1 = on)
+//   0x2000_0300  SPI flash (hw/rtl/spi_master.v)
+//   0x2001_0000  external bus (ext_*): the HDMI build's text console
+//                (hw/rtl/text_console.v); without one, ext_ready is tied
+//                high and reads give 0
 //
 // The SDRAM is shared: Paula's Sample fetches take priority over the CPU.
 `default_nettype none
@@ -53,6 +57,13 @@ module soc #(
     output wire                  flash_sck,
     output wire                  flash_mosi,
     input wire                   flash_miso,
+    // external bus, 0x2001_0000-0x2001_7FFF: held until ext_ready
+    output wire                  ext_valid,
+    output wire          [14:2]  ext_addr,
+    output wire          [31:0]  ext_wdata,
+    output wire          [3:0]   ext_wstrb,
+    input wire                   ext_ready,
+    input wire           [31:0]  ext_rdata,
     // Paula register writes, for testbenches (leave unconnected)
     output wire                  dbg_paula_we,
     output wire          [6:0]   dbg_paula_addr,
@@ -86,10 +97,16 @@ module soc #(
     wire sel_ram  = mem_addr[31:28] == 4'h0;
     wire sel_sdram = mem_addr[31:28] == 4'h1;
     wire sel_io   = mem_addr[31:28] == 4'h2;
-    wire sel_uart = sel_io && mem_addr[15:8] == 8'h00;
-    wire sel_gpio = sel_io && mem_addr[15:8] == 8'h02;
-    wire sel_paula = sel_io && mem_addr[15:8] == 8'h01;
-    wire sel_spi  = sel_io && mem_addr[15:8] == 8'h03;
+    wire sel_low  = sel_io && mem_addr[19:16] == 4'h0;
+    wire sel_ext  = sel_io && mem_addr[19:16] == 4'h1;
+    wire sel_uart = sel_low && mem_addr[15:8] == 8'h00;
+    wire sel_gpio = sel_low && mem_addr[15:8] == 8'h02;
+    wire sel_paula = sel_low && mem_addr[15:8] == 8'h01;
+    wire sel_spi  = sel_low && mem_addr[15:8] == 8'h03;
+    assign ext_valid = mem_valid && sel_ext && !mem_ready;
+    assign ext_addr  = mem_addr[14:2];
+    assign ext_wdata = mem_wdata;
+    assign ext_wstrb = mem_wstrb;
 
     // ---- firmware RAM ----
     wire [31:0] ram_rdata;
@@ -208,6 +225,11 @@ module soc #(
             end else if (sel_spi) begin
                 mem_rdata <= mem_addr[3:2] == 2'd0 ? {24'd0, spi_rdata} : {30'd0, spi_cs, spi_busy};
                 mem_ready <= 1'b1;
+            end else if (sel_ext) begin
+                if (ext_ready) begin
+                    mem_rdata <= ext_rdata;
+                    mem_ready <= 1'b1;
+                end
             end else if (sel_gpio) begin
                 if (mem_wstrb != 0 && mem_addr[3:2] == 2'd0)
                     leds <= mem_wdata[7:0];

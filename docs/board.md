@@ -78,7 +78,7 @@ If firmware in flash is broken and doesn't answer `B`: start `modplayer.py firmw
 
 ## HDMI (sound on a TV or monitor)
 
-The HDMI build adds 640×480 at 60 Hz output on the HDMI connector (J3) with the Song's sound as 48 kHz stereo. The picture is a plain blue screen for now; a status screen is planned. The audio jack keeps working at the same time. How it works is in ADR-0010.
+The HDMI build adds 640×480 at 60 Hz output on the HDMI connector (J3) with the Song's sound as 48 kHz stereo. The picture is a text console (53 × 20 characters in the Spleen 12×24 font, 16 colours; ADR-0012): at power-on the firmware shows a test screen with the self-test results, every character and every colour (it should look like `tests/golden/console-test-screen.png`), and `T` writes text to it (`docs/protocol.md`). The audio jack keeps working at the same time. How the sound works is in ADR-0010.
 
 - Windows: `build.bat hdmi` (or `build.bat hdmi prog`; to keep it at power-on, see SPI flash below). The image goes to `build-hdmi\top.bit`, so the plain build in `build\` is left alone.
 - Linux: `make HDMI=1` (and `make HDMI=1 prog`), into `build-hdmi/`.

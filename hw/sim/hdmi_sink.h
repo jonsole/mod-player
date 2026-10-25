@@ -1,8 +1,9 @@
 // An HDMI sink model for testbenches (ADR-0010): decodes hdmi_tx's TMDS
 // characters, one call to sink() per pixel clock, and checks them against
 // HDMI 1.3 / CEA-861 rules (see hdmi_tb.cpp for the list). Decoded audio
-// samples go to hdmi_on_sample(), which the testbench defines; failures are
-// counted in `failures`. Include once per testbench.
+// samples go to hdmi_on_sample(), and each whole frame's picture (640 x 480
+// pixels, 0xRRGGBB, row by row) to hdmi_on_frame(); the testbench defines
+// both. Failures are counted in `failures`. Include once per testbench.
 #ifndef HDMI_SINK_H
 #define HDMI_SINK_H
 
@@ -10,8 +11,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
-
-static const uint32_t COLOUR = 0x0055AA;   // must match hdmi_tx's default
 
 static int failures;
 static uint64_t clk_no;                     // the testbench counts pixel clocks
@@ -56,6 +55,10 @@ static uint8_t ecc(const std::vector<int> &bits)
 // ---- audio out ------------------------------------------------------------------
 static uint64_t samples_out;
 static void hdmi_on_sample(int32_t l, int32_t r);   // defined by the testbench
+
+// ---- picture out ------------------------------------------------------------------
+static std::vector<uint32_t> picture(640 * 480);
+static void hdmi_on_frame(const std::vector<uint32_t> &rgb);   // defined by the testbench
 
 static int expected_cs(int n, int right)
 {
@@ -261,10 +264,11 @@ static void sink(uint16_t c0, uint16_t c1, uint16_t c2)
         if (!(c0 == VGB_02 && c1 == VGB_1 && c2 == VGB_02)) FAIL("video guard band");
         if (--guard_left == 0) { period = VIDEO; video_in_line = 0; for (int i = 0; i < 3; i++) disparity[i] = 0; }
         break;
-    case VIDEO:
+    case VIDEO: {
         if (all_ctrl) {
             if (video_in_line != 640) FAIL("video line of %d pixels", video_in_line);
-            video_lines_in_frame++;
+            if (++video_lines_in_frame == 480)
+                hdmi_on_frame(picture);
             period = CONTROL; control_run = 0; preamble_run = 0; preamble_kind = -1;
             sink(c0, c1, c2);                // this character starts the control period
             line_pos--;                       // (counted twice)
@@ -274,15 +278,17 @@ static void sink(uint16_t c0, uint16_t c1, uint16_t c2)
             if (line_pos != 144) FAIL("video starts %lld clocks after HSYNC", (long long)line_pos);
             if (lines_since_vs < 34 || lines_since_vs > 34 + 479) FAIL("video on line %llu after VSYNC", (unsigned long long)lines_since_vs);
         }
+        uint32_t px = 0;
         for (int i = 0; i < 3; i++) {
-            int v = tmds_video_decode(ch[i]);
-            int want = (COLOUR >> (8 * i)) & 0xFF;
-            if (v != want) FAIL("pixel channel %d = %02x, want %02x", i, v, want);
+            px |= (uint32_t)tmds_video_decode(ch[i]) << (8 * i);   // channel 0 blue, 1 green, 2 red
             disparity[i] += 2 * ones10(ch[i]) - 10;
             if (disparity[i] > 20 || disparity[i] < -20) FAIL("channel %d disparity %d", i, disparity[i]);
         }
+        if (video_lines_in_frame < 480 && video_in_line < 640)
+            picture[video_lines_in_frame * 640 + video_in_line] = px;
         video_in_line++;
         break;
+    }
     case ISLAND_GUARD:
     case TRAIL_GUARD: {
         int d = terc4_decode(c0);

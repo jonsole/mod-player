@@ -149,6 +149,8 @@ int main(int argc, char **argv)
     }
     dut->rst = 1;
     dut->uart_rx = 1;
+    dut->ext_ready = 1;                // no text console: the external bus answers at once
+    dut->ext_rdata = 0;
     dut->switches = switches;
     std::fill(flash.mem.begin(), flash.mem.end(), (uint8_t)flash_fill);
     std::copy(flash_image.begin(), flash_image.begin() + std::min(flash_image.size(), flash.mem.size()),

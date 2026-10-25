@@ -37,4 +37,7 @@
 #define SPI_BUSY      0x1u              /*   a transfer is in progress */
 #define SPI_CS        0x2u              /*   chip select is on */
 
+#define CONSOLE_BASE   0x20010000u     /* HDMI text console cells (firmware/console.h) */
+#define CONSOLE_STATUS REG32(0x20014000u)
+
 #endif

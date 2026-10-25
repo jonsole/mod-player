@@ -11,7 +11,7 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 | 3 | Board build: `top.v`, pins, ISE build (Makefile + `build.bat`) | Done 2026-10-25: built with ISE 14.7 on Windows 11; boots and plays `gods.mod` on the board (issue #16). Fixes and setup notes in `docs/board.md` |
 | 5 | Boot loader, Song saved to flash (ADR-0006, ADR-0011) | Flash writes, saved Song (#17-#19) done and working on the board. Boot loader (#20) done in simulation (`make boot-test`): the FPGA image holds only the boot loader, which runs firmware from flash or serial (`modplayer.py firmware [--save]`). Works on the board, 2026-10-25: firmware sent over serial, saved, and run from flash |
 | 6 | microSD | Not started |
-| 7 | HDMI audio | First step done in simulation and built with ISE (`build.bat hdmi`): 640x480p60, 48 kHz audio through an exact integer Resampler, plain blue screen (ADR-0010). Works on the owner's display (picture and sound), 2026-10-25. Status screen still to do |
+| 7 | HDMI audio and status screen | 640x480p60, 48 kHz audio through an exact integer Resampler (ADR-0010), working on the owner's display. Text console (#21, ADR-0012): 53 x 20 cells of Spleen 12x24, 16 colours, written by the CPU; checked frame by frame in simulation (`make console-test`). Next: the Song information (#22) and Voice scopes (#23) |
 
 `docs/engineering-notes.md` tells the story of how it was built (published at https://claude.ai/artifact/1u8FxjXG6NGccab94wUaZw). `docs/board.md` is the build/program/use guide with troubleshooting.
 
@@ -63,6 +63,7 @@ Handy tools: `build/render song.mod out.wav` (PC reference audio), `tools/modpla
 |---|---|
 | `firmware/replayer/` | The Replayer: freestanding C, talks to Paula only through `paula_port.h` |
 | `firmware/boot/` | The boot loader: at 0xF000 in the firmware RAM, loads the firmware from flash or serial (ADR-0011) |
+| `firmware/console.c` | The HDMI text console: put, print, clear, wait for the blanking |
 | `firmware/*.c` | Board firmware: `main.c` (boot, self-tests, command loop), `player.c`, `serial.c`, `crc32.c`, `memtest.c`, `hw.h` (address map) |
 | `firmware/runtime/` | Start-up code, linker script, tiny libc |
 | `host/` | PC side: Paula C model, register-write log, `render`, WAV writer |

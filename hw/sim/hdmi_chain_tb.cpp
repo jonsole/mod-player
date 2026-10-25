@@ -49,6 +49,19 @@ static void hdmi_on_sample(int32_t l, int32_t r)
     matched++;
 }
 
+// Nothing writes the text console here: every frame is its power-on screen,
+// blank and black.
+static int pictures;
+static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
+{
+    for (size_t i = 0; i < rgb.size(); i++)
+        if (rgb[i] != 0) {
+            FAIL("pixel (%zu, %zu) = %06x on a blank screen", i % 640, i / 640, rgb[i]);
+            break;
+        }
+    pictures++;
+}
+
 #define NULL_SAMPLE_BYTES (65536u * 2)
 
 int main(int argc, char **argv)
@@ -132,6 +145,7 @@ int main(int argc, char **argv)
         }
     }
 
+    if (pictures < (int)(seconds * 60) - 2) FAIL("only %d whole pictures seen", pictures);
     if (dut->resampler_overrun) FAIL("Resampler overrun");
     if (dut->fifo_overflow) FAIL("FIFO overflow");
     if (dut->fifo_underflow) FAIL("FIFO ran dry");

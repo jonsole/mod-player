@@ -1,0 +1,91 @@
+"""The HDMI text console (issue #21): the soft CPU, the firmware and the
+HDMI output together (build/console_tb), every frame decoded and checked
+against the console model; the firmware's test screen is also compared
+with the reference image tests/golden/console-test-screen.png."""
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import modplayer  # noqa: E402
+import png  # noqa: E402
+
+CONSOLE_TB = os.path.join(ROOT, "build", "console_tb")
+FONT = os.path.join(ROOT, "hw", "rtl", "console_font.hex")
+GOLDEN = os.path.join(ROOT, "tests", "golden", "console-test-screen.png")
+
+
+def run_console(steps=(), expect=None, frames=2, max_cycles=150000000):
+    tmp = tempfile.mkdtemp()
+    ppm = os.path.join(tmp, "last.ppm")
+    args = [CONSOLE_TB, "--font", FONT, "--ppm", ppm, "--frames", str(frames), "--max", str(max_cycles)]
+    for i, (after, data) in enumerate(steps):
+        path = os.path.join(tmp, "send%d.bin" % i)
+        with open(path, "wb") as f:
+            f.write(data)
+        args += ["--after", after, "--send", path]
+    if expect:
+        args += ["--expect", expect]
+    result = subprocess.run(args, capture_output=True, text=True)
+    return result.returncode, result.stdout, ppm
+
+
+class Console(unittest.TestCase):
+    def test_the_test_screen_matches_the_model_and_the_reference_image(self):
+        rc, out, ppm = run_console(expect="ready")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("frames match the model", out)
+        got = png.read_ppm(ppm)
+        if os.environ.get("UPDATE_GOLDEN"):
+            os.makedirs(os.path.dirname(GOLDEN), exist_ok=True)
+            png.write_png(GOLDEN, *got)
+        # (not assertEqual: its diff of two 900 KB images takes hours)
+        self.assertTrue(got == png.read_png(GOLDEN),
+                        "the test screen differs from %s (UPDATE_GOLDEN=1 to accept it)" % GOLDEN)
+
+    def test_text_sent_over_serial_shows_on_the_next_frame(self):
+        # T writes while frames are being shown: every frame must still be
+        # whole characters, old or new (console_tb checks each one), and the
+        # new text must be there from the first frame after the writes
+        line = bytes(range(64, 117))                                   # 53 characters
+        frame = b"".join(modplayer.encode_text(row, 0, 0x1F, line) for row in range(10, 20))
+        rc, out, ppm = run_console(steps=[("ready", frame)], expect="OK\r\n" * 10, frames=1)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("(0 cell-frames", out)                        # writes did overlap frames
+        _, _, rgb = png.read_ppm(ppm)
+        want = render_text(line, 0x1F)
+        for row in range(10, 20):
+            got = rgb[row * 24 * 640 * 3:(row + 1) * 24 * 640 * 3]
+            self.assertTrue(got == want, "row %d of the last frame isn't the text sent" % row)
+
+
+PALETTE = [0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,
+           0x555555, 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF]
+
+
+def font():
+    with open(FONT) as f:
+        return [int(line, 16) for line in f if line.strip() and not line.startswith("//")]
+
+
+def render_text(chars, attr):
+    """One 53-character row of the console (24 lines of 640 pixels, with the
+    2-pixel black border each side) as RGB bytes."""
+    glyphs = font()
+    fg, bg = PALETTE[attr & 15].to_bytes(3, "big"), PALETTE[attr >> 4].to_bytes(3, "big")
+    out = bytearray()
+    for r in range(24):
+        out += bytes(6)
+        for ch in chars:
+            bits = glyphs[ch * 32 + r]
+            for i in range(12):
+                out += fg if bits >> (11 - i) & 1 else bg
+        out += bytes(6)
+    return bytes(out)
+
+
+if __name__ == "__main__":
+    unittest.main()

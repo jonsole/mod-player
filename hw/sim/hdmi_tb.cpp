@@ -8,8 +8,10 @@
 //    2 lines (both negative, VSYNC starting with HSYNC), video 640 x 480
 //    starting 144 clocks after HSYNC and 35 lines after VSYNC starts
 //    (34 HSYNC edges later: line 0 starts before its own HSYNC).
-//  * Every pixel is the expected colour; video characters keep the DC
-//    balance (running disparity bounded).
+//  * Every pixel is the colour the testbench put on rgb for it, RGB_DELAY
+//    clocks after hdmi_tx named it on pixel_x/pixel_y (a pattern that
+//    differs from pixel to pixel, so a picture out by one shows); video
+//    characters keep the DC balance (running disparity bounded).
 //  * Every packet's BCH ECC is right; only null, ACR, audio sample, AVI
 //    and Audio InfoFrame packets appear; InfoFrame checksums and fields
 //    are right and both are sent every frame; ACR has N = 6144,
@@ -18,7 +20,7 @@
 //    one per 525 clocks; parity, B flags and the channel status block
 //    (PCM, 48 kHz, 24-bit, channels 1 and 2) are right.
 //
-//   hdmi_tb frames
+//   hdmi_tb frames [rgb_delay]     (rgb_delay must match the build's RGB_DELAY)
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -36,6 +38,24 @@ static uint64_t samples_in;
 static uint32_t rng = 12345;
 static uint32_t rnd() { rng = rng * 1103515245u + 12345u; return rng >> 8; }
 
+// The test picture: different in every pixel and every colour channel.
+static uint32_t pattern(int x, int y)
+{
+    uint32_t v = (uint32_t)(x * 2654435761u) ^ (uint32_t)(y * 40503u) ^ (uint32_t)(x * y * 97u);
+    return (v ^ (v >> 13)) & 0xFFFFFF;
+}
+
+static int frame_checks_px;
+static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
+{
+    int wrong = 0;
+    for (int y = 0; y < 480; y++)
+        for (int x = 0; x < 640; x++)
+            if (rgb[y * 640 + x] != pattern(x, y) && wrong++ < 3)
+                FAIL("pixel (%d, %d) = %06x, want %06x", x, y, rgb[y * 640 + x], pattern(x, y));
+    frame_checks_px++;
+}
+
 static void hdmi_on_sample(int32_t l, int32_t r)
 {
     if (sent.empty()) {
@@ -52,6 +72,8 @@ int main(int argc, char **argv)
 {
     Verilated::commandArgs(argc, argv);
     int frames = argc > 1 ? atoi(argv[1]) : 3;
+    size_t rgb_delay = argc > 2 ? (size_t)atoi(argv[2]) : 1;
+    std::deque<std::pair<int, int>> named;          // pixel_x/pixel_y, latest last
     Vhdmi_tx *dut = new Vhdmi_tx;
     dut->rst = 1;
     for (int i = 0; i < 4; i++) { dut->clk = 0; dut->eval(); dut->clk = 1; dut->eval(); }
@@ -63,6 +85,10 @@ int main(int argc, char **argv)
         dut->eval();
         dut->clk = 1;
         dut->eval();
+        // the colour for the pixel named rgb_delay clocks ago, for the next edge
+        named.push_back({dut->pixel_x, dut->pixel_y});
+        if (named.size() > rgb_delay + 1) named.pop_front();
+        if (named.size() == rgb_delay + 1) dut->rgb = pattern(named.front().first, named.front().second);
         if (dut->audio_tick) {
             // the sample for this tick, taken at the next edge
             Sample s = {(int32_t)(rnd() & 0xFFFFFF) - 0x800000, (int32_t)(rnd() & 0xFFFFFF) - 0x800000};
@@ -79,6 +105,7 @@ int main(int argc, char **argv)
     if (samples_in != ticks_expected) { clk_no = total; FAIL("%llu audio ticks, expected %llu", (unsigned long long)samples_in, (unsigned long long)ticks_expected); }
     if (sent.size() > 4) { clk_no = total; FAIL("%zu samples fed in but never sent", sent.size()); }
     if (frame_checks < frames - 1) { clk_no = total; FAIL("only %d whole frames seen", frame_checks); }
+    if (frame_checks_px < frames - 1) { clk_no = total; FAIL("only %d whole pictures seen", frame_checks_px); }
     double acr_period = acr_count > 1 ? (double)(acr_last_clk - acr_first_clk) / (acr_count - 1) : 0;
     if (acr_count < 2 || acr_period < 25150 || acr_period > 25250) { clk_no = total; FAIL("ACR every %.0f clocks (%llu sent)", acr_period, (unsigned long long)acr_count); }
     printf("hdmi_tx: %s, %d frames, %llu audio samples, %llu ACR (every %.1f clocks)\n",

@@ -44,6 +44,7 @@ if not exist xst_tmp mkdir xst_tmp
 if not exist xst_hdp mkdir xst_hdp
 copy /y ..\firmware\boot?.hex . >nul || goto fail
 if defined HDMI copy /y ..\..\..\rtl\resampler_coefs.hex . >nul || goto fail
+if defined HDMI copy /y ..\..\..\rtl\console_font.hex . >nul || goto fail
 
 set RTL=..\..\..\..\hw\rtl
 > top.prj echo verilog work "%RTL%\soc.v"
@@ -61,6 +62,7 @@ if defined HDMI (
   >> top.prj echo verilog work "%RTL%\resampler.v"
   >> top.prj echo verilog work "%RTL%\hdmi_audio_fifo.v"
   >> top.prj echo verilog work "%RTL%\hdmi_tx.v"
+  >> top.prj echo verilog work "%RTL%\text_console.v"
   >> top.prj echo verilog work "%RTL%\tmds_encoder.v"
   >> top.prj echo verilog work "..\hdmi_phy.v"
 )

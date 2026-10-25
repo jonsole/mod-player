@@ -70,3 +70,7 @@ The Soft CPU's program: self-tests, the serial commands and the Replayer. Kept i
 **Boot loader**:
 The small program the FPGA image starts, in the top 4 KB of the Soft CPU's RAM. It runs the Firmware from flash, or Firmware the PC sends over serial (ADR-0011).
 _Avoid_: bootstrap, ROM monitor
+
+**Console**:
+The HDMI picture as 53 x 20 character cells, each a character and its colours, written by the Firmware; the status screen is drawn on it (ADR-0012).
+_Avoid_: terminal, frame buffer, OSD

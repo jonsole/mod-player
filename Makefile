@@ -11,7 +11,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test soc-test boot-test dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean \
+.PHONY: all test hw-test soc-test boot-test console-test font-check dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean \
         coefs-check resampler-test hdmi-test hdmi-chain-test hdmi-board-check flash-model-test
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
@@ -32,7 +32,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test flash-model-test soc-test boot-test dsm-test fullchip-test board-test firmware-check \
+test: $(UNIT_TESTS) all hw-test flash-model-test soc-test boot-test console-test font-check dsm-test fullchip-test board-test firmware-check \
       resampler-test hdmi-test hdmi-chain-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command, pt2-clone oracle, PC script"; python3 -m unittest tests.test_render tests.test_oracle tests.test_modplayer
@@ -261,6 +261,13 @@ $(BUILD)/hdmi_tb: $(HDMI_RTL) hw/sim/hdmi_tb.cpp hw/sim/hdmi_sink.h | $(BUILD)
 		-Mdir $(BUILD)/obj_hdmi -o hdmi_tb >$(BUILD)/hdmi_tb.log 2>&1 || (cat $(BUILD)/hdmi_tb.log; false)
 	cp $(BUILD)/obj_hdmi/hdmi_tb $@
 
+# the same with the picture 5 clocks behind the timing, as the text console has it
+$(BUILD)/hdmi_tb_d5: $(HDMI_RTL) hw/sim/hdmi_tb.cpp hw/sim/hdmi_sink.h | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module hdmi_tx -GRGB_DELAY=5 $(HDMI_RTL) $(CURDIR)/hw/sim/hdmi_tb.cpp \
+		-CFLAGS "-O2 -I$(CURDIR)/hw/sim" \
+		-Mdir $(BUILD)/obj_hdmi_d5 -o hdmi_tb >$(BUILD)/hdmi_tb_d5.log 2>&1 || (cat $(BUILD)/hdmi_tb_d5.log; false)
+	cp $(BUILD)/obj_hdmi_d5/hdmi_tb $@
+
 $(BUILD)/tmds_tb: hw/rtl/tmds_encoder.v hw/sim/tmds_tb.cpp | $(BUILD)
 	$(VERILATOR) $(VFLAGS) --top-module tmds_encoder hw/rtl/tmds_encoder.v $(CURDIR)/hw/sim/tmds_tb.cpp \
 		-Mdir $(BUILD)/obj_tmds -o tmds_tb >$(BUILD)/tmds_tb.log 2>&1 || (cat $(BUILD)/tmds_tb.log; false)
@@ -274,23 +281,57 @@ $(BUILD)/serialiser_tb: hw/board/minispartan6/hdmi_phy.v hw/sim/serialiser_tb.cp
 		-Mdir $(BUILD)/obj_serialiser -o serialiser_tb >$(BUILD)/serialiser_tb.log 2>&1 || (cat $(BUILD)/serialiser_tb.log; false)
 	cp $(BUILD)/obj_serialiser/serialiser_tb $@
 
-hdmi-test: $(BUILD)/tmds_tb $(BUILD)/hdmi_tb $(BUILD)/serialiser_tb
+hdmi-test: $(BUILD)/tmds_tb $(BUILD)/hdmi_tb $(BUILD)/hdmi_tb_d5 $(BUILD)/serialiser_tb
 	$(BUILD)/tmds_tb 1 2000000
 	$(BUILD)/hdmi_tb 4
+	$(BUILD)/hdmi_tb_d5 3 5
 	$(BUILD)/serialiser_tb
 
 # The whole HDMI audio chain on two clocks: Songs' Paula frames in, decoded
 # HDMI audio out, equal to the Resampler C model's output
-HDMI_OUT_RTL := hw/rtl/hdmi_out.v hw/rtl/resampler.v hw/rtl/hdmi_audio_fifo.v $(HDMI_RTL)
-$(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/sim/hdmi_chain_tb.cpp hw/sim/hdmi_sink.h \
+HDMI_OUT_RTL := hw/rtl/hdmi_out.v hw/rtl/resampler.v hw/rtl/hdmi_audio_fifo.v hw/rtl/text_console.v $(HDMI_RTL)
+$(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex hw/sim/hdmi_chain_tb.cpp hw/sim/hdmi_sink.h \
 		$(SIM_C) host/resampler.c $(wildcard firmware/replayer/*.h host/*.h) | $(BUILD)
-	$(VERILATOR) $(VFLAGS) --top-module hdmi_out -GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' $(HDMI_OUT_RTL) \
+	$(VERILATOR) $(VFLAGS) --top-module hdmi_out -GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' \
+		-GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' $(HDMI_OUT_RTL) \
 		$(CURDIR)/hw/sim/hdmi_chain_tb.cpp $(addprefix $(CURDIR)/,$(SIM_C) host/resampler.c) \
 		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
 		-Mdir $(BUILD)/obj_hdmi_chain -o hdmi_chain_tb >$(BUILD)/hdmi_chain_tb.log 2>&1 || (cat $(BUILD)/hdmi_chain_tb.log; false)
 	cp $(BUILD)/obj_hdmi_chain/hdmi_chain_tb $@
 
 HDMI_CHAIN_SECONDS ?= 2
+# The text console end to end (issue #21): CPU and firmware, HDMI out,
+# every frame decoded and checked against the console model
+$(BUILD)/console_tb: $(SOC_RTL) $(HDMI_OUT_RTL) hw/rtl/console_font.hex hw/rtl/resampler_coefs.hex \
+		hw/sim/console_wrap.v hw/sim/console_tb.cpp hw/sim/hdmi_sink.h hw/sim/sdram_model.h \
+		$(BUILD)/fw/firmware0.hex | $(BUILD)
+	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module console_wrap \
+		$(foreach n,0 1 2 3,-GFW$(n)='"$(CURDIR)/$(BUILD)/fw/firmware$(n).hex"') \
+		-GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' -GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' \
+		hw/sim/console_wrap.v $(SOC_RTL) $(HDMI_OUT_RTL) $(CURDIR)/hw/sim/console_tb.cpp \
+		-CFLAGS "-O2 -I$(CURDIR)/hw/sim" \
+		-Mdir $(BUILD)/obj_console -o console_tb >$(BUILD)/console_tb.log 2>&1 || (cat $(BUILD)/console_tb.log; false)
+	cp $(BUILD)/obj_console/console_tb $@
+
+# its bus side alone, with writes as fast as the bus allows
+$(BUILD)/text_console_tb: hw/rtl/text_console.v hw/rtl/console_font.hex hw/sim/text_console_tb.cpp | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module text_console -GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' hw/rtl/text_console.v \
+		$(CURDIR)/hw/sim/text_console_tb.cpp -Mdir $(BUILD)/obj_text_console -o text_console_tb \
+		>$(BUILD)/text_console_tb.log 2>&1 || (cat $(BUILD)/text_console_tb.log; false)
+	cp $(BUILD)/obj_text_console/text_console_tb $@
+
+console-test: $(BUILD)/console_tb $(BUILD)/text_console_tb
+	$(BUILD)/text_console_tb 400000
+	python3 -m unittest tests.test_console
+
+# The font is made from Spleen (hw/rtl/third_party/spleen) by
+# tools/console_font.py and committed; this checks it is what the tool makes.
+font-check: | $(BUILD)
+	@python3 tools/console_font.py $(BUILD)/console_font.hex >/dev/null
+	@cmp -s $(BUILD)/console_font.hex hw/rtl/console_font.hex || \
+	  { echo "hw/rtl/console_font.hex is out of date: run tools/console_font.py hw/rtl/console_font.hex"; exit 1; }
+	@echo "== console font is up to date"
+
 hdmi-chain-test: $(BUILD)/hdmi_chain_tb
 	@rm -rf $(BUILD)/songs && python3 tools/modgen.py $(BUILD)/songs >/dev/null
 	@(echo "tests/songs/gods.mod $(HDMI_CHAIN_SECONDS) 7"; echo "$(BUILD)/songs/vibrato.mod $(HDMI_CHAIN_SECONDS) 0"; \
@@ -307,7 +348,7 @@ hdmi-board-check: $(BUILD)/fw/boot0.hex
 	@echo "read_verilog -DHDMI $(addprefix $(CURDIR)/,$(filter-out %sim_primitives.v,$(HDMI_BOARD_RTL)))" > $(BUILD)/synth_hdmi.ys
 	@echo "synth_xilinx -family xc6s -top top" >> $(BUILD)/synth_hdmi.ys
 	@echo "stat" >> $(BUILD)/synth_hdmi.ys
-	cp hw/rtl/resampler_coefs.hex $(BUILD)/fw/
+	cp hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex $(BUILD)/fw/
 	cd $(BUILD)/fw && yosys -q -l ../yosys_hdmi.log -s ../synth_hdmi.ys >/dev/null
 	@echo "Spartan-6 resources with HDMI (Yosys estimate; the XC6SLX25 has 15032 LUTs, 30064 flip-flops,"
 	@echo "38 DSP48A1 and 52 RAMB16):"

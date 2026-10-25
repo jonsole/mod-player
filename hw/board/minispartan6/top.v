@@ -16,7 +16,8 @@ module top #(
     parameter FW2 = "boot2.hex",          // which loads the firmware (ADR-0011)
     parameter FW3 = "boot3.hex",
     parameter RESET_ADDR = 32'h0000_F000, // the boot loader's power-on entry
-    parameter COEFS = "resampler_coefs.hex"   // HDMI build: the Resampler's table
+    parameter COEFS = "resampler_coefs.hex",  // HDMI build: the Resampler's table
+    parameter FONT = "console_font.hex"           // HDMI build: the text console's font
 ) (
     input         CLK50,
     output [7:0]  LEDS,
@@ -62,6 +63,10 @@ module top #(
     wire [15:0] sd_dq_o, sd_dq_i;
     wire        audio_valid;
     wire signed [15:0] audio_l, audio_r;
+    wire        ext_valid, ext_ready;
+    wire [14:2] ext_addr;
+    wire [31:0] ext_wdata, ext_rdata;
+    wire [3:0]  ext_wstrb;
     soc #(.FW0(FW0), .FW1(FW1), .FW2(FW2), .FW3(FW3), .RESET_ADDR(RESET_ADDR)) soc (
         .clk(clk), .rst(rst),
         .uart_tx(FTDI_D1), .uart_rx(FTDI_D0),
@@ -71,6 +76,8 @@ module top #(
         .sd_dq_o(sd_dq_o), .sd_dq_oe(sd_dq_oe), .sd_dq_i(sd_dq_i),
         .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r),
         .flash_cs_n(FLASH_CS), .flash_sck(FLASH_CCLK), .flash_mosi(FLASH_MOSI), .flash_miso(FLASH_MISO),
+        .ext_valid(ext_valid), .ext_addr(ext_addr), .ext_wdata(ext_wdata), .ext_wstrb(ext_wstrb),
+        .ext_ready(ext_ready), .ext_rdata(ext_rdata),
         .dbg_paula_we(), .dbg_paula_addr(), .dbg_paula_wdata()
     );
 
@@ -106,17 +113,25 @@ module top #(
     // ---- HDMI: 640x480 at 60 Hz with Paula's audio at 48 kHz (ADR-0010) ----
     wire       clk_pixel, rst_pixel;
     wire [9:0] tmds0, tmds1, tmds2;
-    hdmi_out #(.COEFS(COEFS)) hdmi (
+    hdmi_out #(.COEFS(COEFS), .FONT(FONT)) hdmi (
         .clk(clk), .rst(rst),
         .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r),
+        .text_valid(ext_valid), .text_addr(ext_addr), .text_wdata(ext_wdata[15:0]), .text_wstrb(ext_wstrb),
+        .text_ready(ext_ready), .text_rdata(ext_rdata),
         .clk_pixel(clk_pixel), .rst_pixel(rst_pixel),
         .tmds0(tmds0), .tmds1(tmds1), .tmds2(tmds2),
-        .resampler_overrun(), .fifo_overflow(), .fifo_underflow(), .fifo_primed()
+        .resampler_overrun(), .fifo_overflow(), .fifo_underflow(), .fifo_primed(),
+        .dbg_text_we(), .dbg_text_cell(), .dbg_text_data(), .dbg_text_be()
     );
     hdmi_phy hdmi_phy (
         .clk(clk), .clk_pixel(clk_pixel), .rst_pixel(rst_pixel),
         .tmds0(tmds0), .tmds1(tmds1), .tmds2(tmds2),
         .TMDS_P(TMDS_P), .TMDS_N(TMDS_N)
     );
+`else
+    // no console: the SoC's external bus answers at once, reads give 0
+    assign ext_ready = 1'b1;
+    assign ext_rdata = 32'd0;
+    wire   ext_unused = ext_valid | (|ext_addr) | (|ext_wdata) | (|ext_wstrb);
 `endif
 endmodule

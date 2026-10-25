@@ -91,6 +91,14 @@ def encode_save_firmware(image):
     return encode_flash_write(FIRMWARE_ADDR, firmware_record(image))
 
 
+def encode_text(row, col, attr, text):
+    """Put text on the HDMI text console: T, row, column, attribute,
+    length, then the characters (code page 437)."""
+    if len(text) > 255:
+        raise ValueError("at most 255 characters at a time")
+    return b"T" + bytes([row, col, attr, len(text)]) + text
+
+
 def encode_flash_crc(addr, length):
     """CRC-32 of a flash range: C, address, length."""
     return b"C" + struct.pack("<II", addr, length)

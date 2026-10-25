@@ -28,16 +28,24 @@
 // Channel 0 bit 3 in a Data Island is 0 on the island's first packet clock
 // and 1 after it (our reading of HDMI 1.3 figure 5-3).
 //
+// Picture: pixel_x / pixel_y say which pixel is being timed in this clock
+// (x 0..799, y 0..524); the colour for it must be on `rgb` RGB_DELAY clocks
+// later. The rest of the output is delayed to match, so a picture source may
+// take that long (the text console takes 5: two block RAM reads in a row).
+//
 // Plain Verilog-2001 for Xilinx ISE (ADR-0004).
 
 module hdmi_tx #(
-    parameter [23:0] COLOUR = 24'h0055AA        // the plain screen, RGB
+    parameter RGB_DELAY = 1                     // clocks from pixel_x/y to its rgb, 1..8
 ) (
     input wire               clk,               // pixel clock, 25.2 MHz
     input wire               rst,
     output reg               audio_tick,
     input wire signed [23:0] audio_l,
     input wire signed [23:0] audio_r,
+    output wire [9:0]        pixel_x,
+    output wire [9:0]        pixel_y,
+    input wire [23:0]        rgb,               // {R, G, B} for the pixel RGB_DELAY clocks ago
     output wire [9:0]        tmds0,             // blue, HSYNC/VSYNC, packet headers
     output wire [9:0]        tmds1,             // green
     output wire [9:0]        tmds2              // red
@@ -55,6 +63,8 @@ module hdmi_tx #(
     wire      di_packet   = x >= 10'd654 && x < 10'd718;
     wire [4:0] pc         = x[4:0] - 5'd14;        // packet clock: 654 = 0 (mod 32)
     wire      load        = x == 10'd653 || x == 10'd685;
+    assign    pixel_x     = x;
+    assign    pixel_y     = y;
 
     // ---- audio: a sample every 525 clocks, queued for the next packet ----------
     reg [9:0]  tick_count;
@@ -225,6 +235,20 @@ module hdmi_tx #(
         end
     end
 
+    // ---- delay to meet the picture source's rgb --------------------------------------
+    localparam EXTRA = RGB_DELAY - 1;
+    reg [20:0] delay_line [0:7];
+    integer    d;
+    always @(posedge clk) begin
+        delay_line[0] <= {mode, ctl, terc};
+        for (d = 1; d < 8; d = d + 1)
+            delay_line[d] <= delay_line[d - 1];
+    end
+    wire [20:0] late = (EXTRA == 0) ? {mode, ctl, terc} : delay_line[EXTRA - 1];
+    wire [2:0]  mode_o = late[20:18];
+    wire [5:0]  ctl_o  = late[17:12];
+    wire [11:0] terc_o = late[11:0];
+
     // ---- stage 2: encode ----------------------------------------------------------
     function [9:0] terc4;
         input [3:0] d;
@@ -261,8 +285,8 @@ module hdmi_tx #(
         endcase
     endfunction
 
-    wire video = mode == 3'd1;
-    tmds_encoder enc0 (.clk(clk), .video(video), .d(COLOUR[7:0]), .other(other(mode, ctl[1:0], terc[3:0], 2'd0)), .q(tmds0));
-    tmds_encoder enc1 (.clk(clk), .video(video), .d(COLOUR[15:8]), .other(other(mode, ctl[3:2], terc[7:4], 2'd1)), .q(tmds1));
-    tmds_encoder enc2 (.clk(clk), .video(video), .d(COLOUR[23:16]), .other(other(mode, ctl[5:4], terc[11:8], 2'd2)), .q(tmds2));
+    wire video = mode_o == 3'd1;
+    tmds_encoder enc0 (.clk(clk), .video(video), .d(rgb[7:0]), .other(other(mode_o, ctl_o[1:0], terc_o[3:0], 2'd0)), .q(tmds0));
+    tmds_encoder enc1 (.clk(clk), .video(video), .d(rgb[15:8]), .other(other(mode_o, ctl_o[3:2], terc_o[7:4], 2'd1)), .q(tmds1));
+    tmds_encoder enc2 (.clk(clk), .video(video), .d(rgb[23:16]), .other(other(mode_o, ctl_o[5:4], terc_o[11:8], 2'd2)), .q(tmds2));
 endmodule
