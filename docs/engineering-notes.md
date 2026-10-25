@@ -69,7 +69,7 @@ It found three more bugs, all of which would have shown up on the board:
 
 ## Phase 3: the board
 
-`hw/board/minispartan6/` has the top level, pin constraints and an ISE command-line build (`docs/board.md` says how to build, program and use it). ISE can't run here, so the board work is checked three other ways:
+`hw/board/minispartan6/` has the top level, pin constraints and an ISE command-line build (`docs/board.md` says how to build, program and use it). This part was written before ISE or the board were available, so it was checked three other ways (Bring-up, below, says how the real thing went):
 
 - **Pins**: all 56 locations are cross-checked by script against Scarab's published UCF.
 - **Synthesis**: Yosys (`synth_xilinx -family xc6s`) synthesises the whole design: about 4100 LUTs (27 % of the LX25), 2600 flip-flops, 18 DSP48A1, 17 block RAMs.
@@ -81,8 +81,22 @@ Two smaller changes reduce bring-up risk. The block-RAM init files are now plain
 
 For building on Windows (ISE is most at home there), `build.bat` runs the same ISE steps as the Makefile, and a ready-built copy of the firmware is kept with the board files so no RISC-V compiler is needed; `make test` fails if that copy falls behind the source. Programming uses openFPGALoader, which knows the board and drives JTAG through the board's own USB chip.
 
+## Bring-up
+
+The first real build and run, on Windows 11 with ISE 14.7, took four fixes. Two were in the tools, two in the design; the simulation had missed both design faults for the same reason, so each fix began by making the simulation see what the board saw.
+
+**ISE wouldn't start.** Every ISE program, even `xst -help`, froze at once with no output. A stack read from the frozen process showed ISE's core library listing network connections while it was still being loaded, and WSL's network provider (`P9NP`) answering by starting a thread and waiting for it, which can't run until loading finishes. Removing `P9NP` from Windows' network provider order fixed it. Licensing (a Vivado licence doesn't cover ISE; a free WebPACK one does), the VC++ 2008 runtimes and the usual `libPortabilityNOSH.dll` swap were routine by comparison. `map` still dies now and then mid-placement without a word, so `build.bat` retries it.
+
+**XST is stricter than Verilator.** With `` `default_nettype none ``, a port declared `input clk` has no net type, which the standard calls an error; Verilator lets it pass, XST doesn't. `soc.v` now says `input wire`.
+
+**The firmware stopped after one instruction's worth of work.** The image built and loaded, LED 0 lit, and nothing came over serial. Three temporary debug builds put internal signals on the LEDs in place of the firmware's own: the clock ran and the serial input worked; the UART had sent no bytes; the CPU was cycling between block RAM and the I/O space without ever trapping. Meanwhile bitgen had started crashing outright on the debug builds, and its log pointed at the cause: the CPU's register file and Paula's write queue had landed in the Spartan-6's 9K block RAMs, which need a special bitstream format (Xilinx AR 39999) that ISE 14.7 handles badly. With both kept in logic instead (`top.xcf`, and a `ram_style` attribute in `paula.v`) and no 9K block RAMs left, the board printed `mod-player 0.1`.
+
+**SDRAM reads were a clock late.** Next came `sdram FAIL at 10000004`. The firmware now also prints what it expected and what it read (`expected dd1e16cb got dd1edd1e`), and that showed the low half holding the second burst beat. The earlier paper analysis (phase 3) had the capture edge right and the cycle wrong: with CAS latency 2 the chip starts driving a beat after the edge *one* cycle after the READ, not two, so the window is a cycle earlier than assumed. The SDRAM model had the same cycle-late picture, so the simulation agreed with the controller and passed. Following ADR-0005, the model was corrected first (the soc test then failed exactly as the board did), then the controller captures each beat one clock earlier. With that the board prints `sdram ok`, `paula ok`, `ready`, and plays.
+
+Lesson, again: a model that shares the design's assumptions can only confirm them. The SDRAM model is now written from the chip's timing (data valid from tAC after edge READ+CL−1 to tOH after edge READ+CL), with the derivation in its header.
+
 ## Where it stands
 
-- Phase 1 (PC reference) and phase 2 (full-chip simulation) are done; `make test` runs everything in about two minutes.
-- The board build has not been run through ISE or tried on hardware. `docs/board.md` lists what to check first.
-- Not started: the boot loader and saving a Song to flash (phase 5), microSD (phase 6), HDMI (phase 7).
+- Phase 1 (PC reference) and phase 2 (full-chip simulation) are done; `make test` runs everything in about two and a half minutes.
+- Phase 3 is done: the board builds with ISE, boots and plays MOD files loaded over serial. The headphone output is quiet (the filter's 3.3 kΩ is in series with the headphones), which HDMI audio will make moot.
+- Not started: the boot loader and saving a Song to flash (phase 5), microSD (phase 6). HDMI with audio (phase 7) has begun in a separate session.

@@ -1,0 +1,13 @@
+# XST constraints for the board build.
+#
+# Keep small memories out of the Spartan-6's 9K block RAMs (RAMB8BWER). With
+# any of those in the design, bitgen has to write a special bitstream format
+# (Xilinx AR 39999); ISE 14.7's bitgen often crashes doing it ("Incorrect
+# number of bits in bitstream for FDRI write"), and the bitstreams it did
+# write left the firmware not running on the board. Without them the design
+# boots. Paula's write queue gets the same treatment by an attribute in
+# paula.v; this file covers PicoRV32's register file, which is vendored and
+# left unedited.
+BEGIN MODEL "picorv32"
+    NET "cpuregs" ram_style = distributed;
+END;

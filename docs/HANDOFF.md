@@ -8,7 +8,7 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 |---|---|---|
 | 1 | PC reference: Replayer (ProTracker 2.3 port in C), Paula C model, `render` to WAV, pt2-clone oracle | Done; matches pt2-clone write for write |
 | 2 | The chip in simulation: Verilog Paula, PicoRV32 SoC, SDRAM controller, delta-sigma DAC, serial loading, full chip | Done; full chip matches the PC reference sample for sample |
-| 3 | Board build: `top.v`, pins, ISE build (Makefile + `build.bat`) | Written and simulated; **never run through ISE or on hardware** (issue #16) |
+| 3 | Board build: `top.v`, pins, ISE build (Makefile + `build.bat`) | Done 2026-10-25: built with ISE 14.7 on Windows 11; boots and plays `gods.mod` on the board (issue #16). Fixes and setup notes in `docs/board.md` |
 | 5 | Boot loader, Song saved to flash (ADR-0006) | Not started |
 | 6 | microSD | Not started |
 | 7 | HDMI audio | Not started |
@@ -21,16 +21,13 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 - No pull request has been opened. Issues #1–#15 are complete in code but still open on GitHub; they would close naturally when this branch is merged (or close them by hand).
 - Commit messages: imperative subject, short body explaining why.
 
-## The immediate next step: board bring-up (issue #16)
+## The immediate next step
 
-On Windows, with ISE 14.7 on `D:`:
+Board bring-up (issue #16) is done: `build.bat prog` builds and loads the board, which prints `mod-player 0.1`, `sdram ok`, `paula ok`, `ready` and plays `gods.mod`. `docs/board.md` records what it took: ISE setup on Windows 11, keeping memories out of the 9K block RAMs, and the SDRAM read capture edge.
 
-1. `cd hw\board\minispartan6` and run `build.bat`. Look at the timing summary it prints (one 50 MHz clock).
-2. Install openFPGALoader (MSYS2), put **Interface 0** of the board on WinUSB with Zadig (leave Interface 1 as the COM port), then `build.bat prog`.
-3. Expect LED 0 to blink, and on the COM port at 1 000 000 baud: `mod-player 0.1`, `sdram ok`, `paula ok`, `ready`.
-4. `py tools\modplayer.py --port COM5 load tests\songs\gods.mod` (your COM number will differ). Volume low first.
+On the owner's PC: the player's serial port is COM7, openFPGALoader is in `C:\msys64\ucrt64\bin`, and WSL Ubuntu has the Linux tools. The Windows checkout has CRLF line endings, so run `make` in a clone inside WSL, not on `/mnt/c`.
 
-`build.bat` has never been run (written without Windows to test on), so the first failures are likely to be in it or in XST's reading of the Verilog. `docs/board.md` "If it doesn't work" lists the likely trouble spots in order: XST quirks, 50 MHz timing (Paula's output stage, PicoRV32 ALU), serial port, SDRAM read capture edge (`dq_fall` in `hw/rtl/sdram_ctrl.v`), left/right swap.
+Next is phase 7, HDMI with audio, started in a separate session. (The board's own audio jack is quiet into headphones: the filter's 3.3 kOhm is in series with them.)
 
 When something fails on the board, the rule (ADR-0005) is: **reproduce it in simulation first**, fix it there with a test, then rebuild.
 

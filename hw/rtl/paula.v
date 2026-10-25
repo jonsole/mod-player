@@ -53,7 +53,8 @@ module paula #(
 
     // ---- write queue -----------------------------------------------------
     // entry = {word index (reg_addr[6:2]), value}
-    reg  [36:0] fifo [0:127];
+    // Kept out of the Spartan-6's 9K block RAMs: see hw/board/minispartan6/top.xcf.
+    (* ram_style = "distributed" *) reg [36:0] fifo [0:127];
     reg  [36:0] fifo_q;
     reg  [6:0]  fifo_wp, fifo_rp;
     reg  [7:0]  fifo_count;

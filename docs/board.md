@@ -1,6 +1,6 @@
 # Running it on the miniSpartan6+
 
-Everything below the FPGA tools has been tested in simulation; **nothing has yet been built with Xilinx ISE or run on a real board.** This guide says how to try, and what to look at first if it doesn't work.
+Brought up on a real board on 2026-10-25 (Windows 11, ISE 14.7): it builds, boots (`sdram ok`, `paula ok`, `ready`) and plays `gods.mod`. This guide says how to build and use it, and what to look at first if it doesn't work.
 
 ## What you need
 
@@ -16,7 +16,16 @@ Everything below the FPGA tools has been tested in simulation; **nothing has yet
 3. **Give the JTAG channel a USB driver.** Windows binds both FT2232H channels to FTDI's serial driver; openFPGALoader needs the first one on WinUSB. Run Zadig (https://zadig.akeo.ie), tick *Options > List All Devices*, pick the board's **Interface 0** and install **WinUSB**. Leave **Interface 1** alone: it stays the COM port the player talks over.
 4. **Program.** `build.bat prog` loads the FPGA (lost at power-off); `build.bat flash` writes the SPI flash so it loads at power-on.
 
-ISE 14.7 on Windows 10/11 is known for crashes in its graphical tools (Project Navigator, iMPACT) under 64-bit; the command-line tools used here are not affected.
+### ISE 14.7 on Windows 10/11
+
+What it took on a fresh Windows 11 install:
+
+- **Every ISE tool hangs at start-up** (no output, no CPU, even `xst -help`) if WSL is installed. ISE's `libPortability.dll` lists network connections while it is still loading, and WSL's network provider (`P9NP`) deadlocks on that. Fix: remove `P9NP` from `ProviderOrder` under `HKLM\SYSTEM\CurrentControlSet\Control\NetworkProvider\Order` (e.g. `RDPNP,LanmanWorkstation,webclient`); export the key first to undo it. Windows or WSL updates may put it back. The ISE installer's hang at "enable WebTalk" (`xwebtalk.exe`) is the same deadlock; end that process and the install finishes.
+- Copy `libPortabilityNOSH.dll` over `libPortability.dll` in both `ISE\lib\nt64` and `common\lib\nt64` (keep the originals). This is the well-known fix for the 64-bit GUI tools' crashes.
+- Install the VC++ 2008 runtimes from `common\bin\nt64\vcredist_x64.exe` and `common\bin\nt\vcredist_x86.exe` (the licence manager needs them). The tools then still print "VC++ 2008 runtime libraries are not installed"; that warning is wrong and harmless.
+- The licence must include the `ISE_WebPACK` feature: a Vivado licence doesn't cover ISE. Generate a free *ISE WebPACK* node-locked licence at AMD's licensing site and save it next to any other `.lic` in the folder `XILINXD_LICENSE_FILE` points to.
+- `map` sometimes dies part-way through placement with no message; `build.bat` retries it.
+- From Git Bash, run `build.bat` by its full path: bare names in the current directory aren't searched when `NoDefaultCurrentDirectoryInExePath` is set.
 
 ## Build and program on Linux
 
@@ -40,7 +49,7 @@ Changing the firmware means re-running the ISE build, because the firmware lives
 
 1. After programming, LED 0 lights, then blinks about three times a second (the heartbeat: the soft CPU is running). The firmware tests the SDRAM and checks that Paula's tick timer fires, printing over serial: `mod-player 0.1`, `sdram ok`, `paula ok`, `ready`.
 2. The serial port is the FT2232H's **second** interface (`/dev/ttyUSB1` on Linux; on Windows the COM port Device Manager lists, e.g. `--port COM5`), at **1 000 000 baud**.
-3. Plug headphones or an amplifier into the jack. **Start with the volume low:** the jack is driven straight from the FPGA pins through an RC filter, at up to about 3 V peak to peak.
+3. Plug an amplifier or powered speakers into the jack. **Start with the volume low:** the jack is driven straight from the FPGA pins through an RC filter, at up to about 3 V peak to peak. Headphones work but are quiet: the filter's 3.3 kΩ in series with 32 Ω leaves about 1% of the signal.
 4. Load and play a Song:
 
    ```sh
@@ -56,12 +65,13 @@ Changing the firmware means re-running the ISE build, because the firmware lives
 
 ## If it doesn't work
 
-In rough order of likelihood:
+In rough order of likelihood. Bring-up hit 1, 3 (in a different form) and 4; the notes say what the fixes were.
 
-1. **XST rejects something.** The Verilog is plain Verilog-2001 and synthesises with Yosys for Spartan-6 (`make synth-check`), but XST has its own quirks. The places to look first: `$readmemh` paths (the Makefile copies the hex files next to the XST run), initial values on registers (used for power-up states), and PicoRV32 itself (used with ISE by others, but not here).
+1. **XST rejects something.** The Verilog is plain Verilog-2001 and synthesises with Yosys for Spartan-6 (`make synth-check`), but XST has its own quirks. Found so far: under `` `default_nettype none `` every port needs an explicit `wire` (Verilator doesn't insist; XST does), and the setting carries into the files XST reads next, so reset it at the end of the file. Other places to look: `$readmemh` paths (the build copies the hex files next to the XST run) and initial values on registers.
+   - **No 9K block RAMs.** If any memory lands in a RAMB8BWER, bitgen has to write a special bitstream format (Xilinx AR 39999). ISE 14.7's bitgen then often crashes ("Incorrect number of bits in bitstream for FDRI write"), and the bitstreams it did write left the CPU stuck after its first few instructions. `top.xcf` and a `ram_style` attribute in `paula.v` keep the small memories in logic; `build/top_map.mrp` should say "Number of RAMB8BWERs: 0".
 2. **Timing fails at 50 MHz.** Likely long paths: Paula's output stage (`S_POST` in `hw/rtl/paula.v`: blend, then a 32×18 multiply-add for the A500 filter) and PicoRV32's ALU. Paula has spare clocks per colour clock (it uses 3–5 of 14), so its output stage can be split over more states without changing behaviour; `make hw-test` will prove it still matches.
-3. **No serial output.** Check you're on the second FTDI interface at 1 Mbaud. The FT2232H's channel B must be in serial (UART) mode, which is its default; if its EEPROM was set to FIFO mode, set it back with FTDI's FT_Prog or `ftdi_eeprom`.
-4. **`sdram FAIL` (LEDs alternating).** The SDRAM is clocked with the inverse of the system clock (`ODDR2` in `top.v`), so the chip samples commands half a cycle after they change. Read data arrives roughly 2–16 ns after one of our rising edges (6 ns access time plus pin delays), so the controller captures it on the *falling* edge (`dq_fall` in `hw/rtl/sdram_ctrl.v`), mid-window, and the testbenches present read data only around that edge. If reads are still unreliable, that capture edge (or the clock phase) is the thing to adjust, and the testbench timing with it.
+3. **No serial output.** If LED 0 stays on without blinking, the firmware has stopped (on bring-up, that was the 9K block RAM problem in 1). Otherwise, check you're on the second FTDI interface at 1 Mbaud. The FT2232H's channel B must be in serial (UART) mode, which is its default; if its EEPROM was set to FIFO mode, set it back with FTDI's FT_Prog or `ftdi_eeprom`.
+4. **`sdram FAIL` (LEDs alternating).** The message gives the failing address, the word expected and the word read. The SDRAM is clocked with the inverse of the system clock (`ODDR2` in `top.v`), so the chip samples commands half a cycle after they change. With CAS latency 2, a read beat is driven from about 6 ns after the SDRAM edge one cycle after the READ until about 3 ns after the next edge, so the controller captures each beat on our *falling* edge 2.5 (then 3.5) clocks after the READ (`dq_fall` in `hw/rtl/sdram_ctrl.v`), and the SDRAM model in `hw/sim/sdram_model.h` presents read data the same way. Bring-up found the first version capturing a clock late (`expected dd1e16cb got dd1edd1e`: the low half held the second beat); the model had made the same mistake, so the simulation passed. If reads are unreliable again, the capture edge (or the clock phase) is the thing to adjust, and the model with it.
 5. **Sound on the wrong side or missing.** `AUDIO2` (pin A8, jack tip) is left and `AUDIO1` (B8, ring) right, from the schematic; `make board-test` checks the design drives them that way.
 
 ## What the simulation already proves

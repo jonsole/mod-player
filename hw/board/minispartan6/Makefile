@@ -43,9 +43,10 @@ $(BUILD)/top.xst: Makefile | $(BUILD)
 	  '-opt_mode Speed' \
 	  '-opt_level 1' \
 	  '-keep_hierarchy No' \
-	  '-iob auto' > $@
+	  '-iob auto' \
+	  '-uc ../top.xcf' > $@
 
-$(BUILD)/top.ngc: $(RTL) $(BUILD)/top.prj $(BUILD)/top.xst firmware
+$(BUILD)/top.ngc: $(RTL) top.xcf $(BUILD)/top.prj $(BUILD)/top.xst firmware
 	cp $(FW)/firmware0.hex $(FW)/firmware1.hex $(FW)/firmware2.hex $(FW)/firmware3.hex $(BUILD)/
 	mkdir -p $(BUILD)/xst_tmp $(BUILD)/xst_hdp
 	cd $(BUILD) && xst -ifn top.xst -ofn top.srp

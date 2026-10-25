@@ -5,13 +5,20 @@
 //
 // Call step() once per controller clock, after the falling edge (that is
 // the SDRAM's rising edge: its clock is the controller clock inverted).
-// It samples the command pins and computes dq_in. With real pin delays and
-// the chip's access time, read data is valid from just after the next
-// rising edge until shortly after the falling edge after that; testbenches
-// therefore present dq_in to the controller only for its next FALLING
-// edge, and random data at the rising edges (see dq_garbage()). Outside
-// read windows dq_in itself is random, so a controller that samples a
-// cycle early or late reads garbage.
+// It samples the command pins and computes dq_in, which testbenches present
+// to the controller at its NEXT falling edge only, with random data at the
+// rising edges (see dq_garbage()). Outside read windows dq_in itself is
+// random, so a controller that samples a cycle early or late reads garbage.
+//
+// Read timing, as the chip does it: with CAS latency CL, a burst's first
+// beat is driven from tAC (about 6 ns) after the SDRAM edge CL-1 cycles
+// after the READ until tOH (about 3 ns) after the edge CL cycles after it.
+// With pin delays that window is roughly 9 ns after one of our falling
+// edges to 5 ns after the next, so the controller captures it on that next
+// falling edge: the one that coincides with SDRAM edge READ + CL. The model
+// therefore makes beat i the dq_in computed at edge READ + CL - 1 + i.
+// (Bring-up found the controller capturing a cycle late, on the board: the
+// model had the same cycle-late view of the chip.)
 //
 // The controller is expected to use burst length 2, CAS latency 2 and auto
 // precharge. Timing limits are for a -6/-7 speed grade part, rounded up to
@@ -143,7 +150,7 @@ struct SdramModel {
             long long pre;
             if (read) {
                 for (int i = 0; i < BL; i++)
-                    beats.push_back({cycle + CL + i, true, base + (uint32_t)i});
+                    beats.push_back({cycle + CL - 1 + i, true, base + (uint32_t)i});
                 busy_until = cycle + BL;
                 pre = cycle + BL;          // precharge starts BL clocks after READ
                 reads++;

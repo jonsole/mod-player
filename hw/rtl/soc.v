@@ -23,32 +23,32 @@ module soc #(
     parameter FW3         = "firmware3.hex",
     parameter PAULA_FREE_RUN = 0                 // simulation only: Paula as fast as it can
 ) (
-    input        clk,
-    input        rst,
-    output       uart_tx,
-    input        uart_rx,
-    output reg [7:0] leds,
-    input  [3:0] switches,
+    input wire                   clk,
+    input wire                   rst,
+    output wire                  uart_tx,
+    input wire                   uart_rx,
+    output reg           [7:0]   leds,
+    input wire           [3:0]   switches,
     // SDRAM (the board top adds the inverted clock and the DQ tristate)
-    output        sd_cke,
-    output        sd_cs_n,
-    output        sd_ras_n,
-    output        sd_cas_n,
-    output        sd_we_n,
-    output [1:0]  sd_ba,
-    output [12:0] sd_a,
-    output [1:0]  sd_dqm,
-    output [15:0] sd_dq_o,
-    output        sd_dq_oe,
-    input  [15:0] sd_dq_i,
+    output wire                  sd_cke,
+    output wire                  sd_cs_n,
+    output wire                  sd_ras_n,
+    output wire                  sd_cas_n,
+    output wire                  sd_we_n,
+    output wire          [1:0]   sd_ba,
+    output wire          [12:0]  sd_a,
+    output wire          [1:0]   sd_dqm,
+    output wire          [15:0]  sd_dq_o,
+    output wire                  sd_dq_oe,
+    input wire           [15:0]  sd_dq_i,
     // audio: one stereo frame per colour clock
-    output        audio_valid,
-    output signed [15:0] audio_l,
-    output signed [15:0] audio_r,
+    output wire                  audio_valid,
+    output wire signed   [15:0]  audio_l,
+    output wire signed   [15:0]  audio_r,
     // Paula register writes, for testbenches (leave unconnected)
-    output        dbg_paula_we,
-    output [6:0]  dbg_paula_addr,
-    output [31:0] dbg_paula_wdata
+    output wire                  dbg_paula_we,
+    output wire          [6:0]   dbg_paula_addr,
+    output wire          [31:0]  dbg_paula_wdata
 );
     // ---- CPU ----
     wire        mem_valid, mem_instr;

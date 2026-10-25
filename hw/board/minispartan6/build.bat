@@ -56,14 +56,26 @@ set RTL=..\..\..\..\hw\rtl
 >> top.xst echo -opt_level 1
 >> top.xst echo -keep_hierarchy No
 >> top.xst echo -iob auto
+>> top.xst echo -uc ..\top.xcf
 
 echo === xst (synthesis)
 xst -ifn top.xst -ofn top.srp || goto fail
 echo === ngdbuild
 ngdbuild -uc ..\top.ucf -p %PART% top.ngc top.ngd || goto fail
 echo === map
-rem -pr b packs the SDRAM pin registers into the I/O blocks
-map -w -p %PART% -pr b -o top_map.ncd top.ngd top.pcf || goto fail
+rem -pr b packs the SDRAM pin registers into the I/O blocks.
+rem On Windows 11, ISE 14.7's map sometimes dies during global placement with
+rem no message; the same run then succeeds, so it is tried up to three times.
+set MAP_TRIES=0
+:map_again
+set /a MAP_TRIES+=1
+map -w -p %PART% -pr b -o top_map.ncd top.ngd top.pcf && goto map_done
+if %MAP_TRIES% lss 3 (
+  echo *** map stopped without finishing; trying again
+  goto map_again
+)
+goto fail
+:map_done
 echo === par (place and route)
 par -w top_map.ncd top.ncd top.pcf || goto fail
 echo === trce (timing report, build\top.twr)

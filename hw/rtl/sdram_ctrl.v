@@ -6,10 +6,13 @@
 // Rows are closed after every access, so there is no page bookkeeping.
 // The SDRAM clock is the controller clock inverted (done at the pin), so
 // commands and write data are sampled half a cycle after they leave here.
-// Read data then arrives about 2-16 ns after one of our rising edges (the
-// chip's 6 ns access time plus pin delays), so it is captured on our
-// FALLING edge, in the middle of that window, 3.5 clocks after the READ,
-// and used at the next rising edge.
+// With CAS latency 2 the chip drives a read beat from its access time
+// (about 6 ns) after the SDRAM edge one cycle after the READ is sampled,
+// until about 3 ns after the edge after that. With pin delays that is
+// roughly 9 ns after one of our falling edges to 5 ns after the next, so
+// each beat is captured on that next FALLING edge (2.5 and 3.5 clocks after
+// the READ leaves here) and used at the following rising edge. See
+// hw/sim/sdram_model.h, which presents read data the same way.
 //
 // Host port: hold req (with we/addr/wdata/wstrb) until ack, which pulses
 // for one clock with rdata for reads.
@@ -171,10 +174,10 @@ module sdram_ctrl #(
                 ack <= 1'b1;
                 count <= 3; after_wait <= S_IDLE; state <= S_WAIT;
             end
-            S_READ: begin                       // captured 3.5 and 4.5 clocks after READ
+            S_READ: begin                       // captured 2.5 and 3.5 clocks after READ
                 step <= step + 1'b1;
-                if (step == 3'd3) rdata[15:0] <= dq_fall;
-                if (step == 3'd4) begin
+                if (step == 3'd2) rdata[15:0] <= dq_fall;
+                if (step == 3'd3) begin
                     rdata[31:16] <= dq_fall;
                     ack <= 1'b1;
                     count <= 1; after_wait <= S_IDLE; state <= S_WAIT;

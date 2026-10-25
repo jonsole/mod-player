@@ -145,10 +145,14 @@ int main(void)
 {
     LEDS = 0x01;
     serial_puts("mod-player " VERSION "\r\n");
-    uintptr_t bad = memtest(SDRAM_BASE, SDRAM_SIZE);
-    if (bad) {
+    struct memtest_fail fail;
+    if (memtest(SDRAM_BASE, SDRAM_SIZE, &fail)) {
         serial_puts("sdram FAIL at ");
-        serial_put_hex(bad);
+        serial_put_hex(fail.addr);
+        serial_puts(" expected ");
+        serial_put_hex(fail.expected);
+        serial_puts(" got ");
+        serial_put_hex(fail.got);
         serial_puts("\r\n");
         for (;;)
             LEDS = (cycles() >> 24) & 1 ? 0xAA : 0x55;   /* blink code: SDRAM fault */
