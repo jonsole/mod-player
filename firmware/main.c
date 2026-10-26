@@ -242,6 +242,7 @@ static void draw_test_screen(int paula_ok)
     static const char hex[] = "0123456789ABCDEF";
     if (!console_present())
         return;
+    console_control(0);                 /* no scopes over the test screen */
     console_clear(ATTR_NORMAL);
     console_clear_row(0, 0, ATTR(WHITE, BLUE));
     console_print(0, 1, "mod-player " VERSION, ATTR(WHITE, BLUE));

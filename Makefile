@@ -289,7 +289,7 @@ hdmi-test: $(BUILD)/tmds_tb $(BUILD)/hdmi_tb $(BUILD)/hdmi_tb_d5 $(BUILD)/serial
 
 # The whole HDMI audio chain on two clocks: Songs' Paula frames in, decoded
 # HDMI audio out, equal to the Resampler C model's output
-HDMI_OUT_RTL := hw/rtl/hdmi_out.v hw/rtl/resampler.v hw/rtl/hdmi_audio_fifo.v hw/rtl/text_console.v $(HDMI_RTL)
+HDMI_OUT_RTL := hw/rtl/hdmi_out.v hw/rtl/resampler.v hw/rtl/hdmi_audio_fifo.v hw/rtl/text_console.v hw/rtl/scopes.v $(HDMI_RTL)
 $(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex hw/sim/hdmi_chain_tb.cpp hw/sim/hdmi_sink.h \
 		$(SIM_C) host/resampler.c $(wildcard firmware/replayer/*.h host/*.h) | $(BUILD)
 	$(VERILATOR) $(VFLAGS) --top-module hdmi_out -GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' \
@@ -321,8 +321,15 @@ $(BUILD)/text_console_tb: hw/rtl/text_console.v hw/rtl/console_font.hex hw/sim/t
 		>$(BUILD)/text_console_tb.log 2>&1 || (cat $(BUILD)/text_console_tb.log; false)
 	cp $(BUILD)/obj_text_console/text_console_tb $@
 
-console-test: $(BUILD)/console_tb $(BUILD)/text_console_tb
+# the scopes' double buffer alone, with Paula's frames stalling at random
+$(BUILD)/scopes_tb: hw/rtl/scopes.v hw/sim/scopes_tb.cpp | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module scopes hw/rtl/scopes.v $(CURDIR)/hw/sim/scopes_tb.cpp \
+		-Mdir $(BUILD)/obj_scopes -o scopes_tb >$(BUILD)/scopes_tb.log 2>&1 || (cat $(BUILD)/scopes_tb.log; false)
+	cp $(BUILD)/obj_scopes/scopes_tb $@
+
+console-test: $(BUILD)/console_tb $(BUILD)/text_console_tb $(BUILD)/scopes_tb
 	$(BUILD)/text_console_tb 400000
+	$(BUILD)/scopes_tb 120
 	python3 -m unittest tests.test_console
 
 # The font is made from Spleen (hw/rtl/third_party/spleen) by

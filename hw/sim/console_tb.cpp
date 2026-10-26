@@ -25,8 +25,14 @@
 //                                rows the reference played in the frame and the two
 //                                before it (the screen follows within two frames);
 //                                at the end, every row that lasted 4 frames or more
-//                                must have been shown, and the Song and Sample names
-//                                must be on the screen
+//                                must have been shown, and the Song's name must be
+//                                on the screen. The Voice scopes (issue #23) too:
+//                                every point captured must be its Voice's output in
+//                                the reference >> 7 times 1.5, taken at a rising zero crossing
+//                                (or after the time-out) and then every 128 colour
+//                                clocks; and every frame's scope pixels must be the
+//                                traces drawn from the slots on screen: the newest
+//                                capture bright, the two before at half and a quarter
 //
 // Clocks run at their exact ratio (50 MHz : 25.2 MHz = 125 : 63).
 #include <cstdio>
@@ -96,6 +102,8 @@ struct Reference {
     paula_model_t paula;
     replayer_t rp;
     std::deque<paula_frame_t> frames;
+    std::deque<std::vector<int32_t>> voice_frames;   // each Voice's part of each frame
+    int32_t voices[4] = {0, 0, 0, 0}, prev_voices[4] = {0, 0, 0, 0};
     std::vector<RowState> rows;            // what was heard, from when
     bool started = false;
     uint64_t audio_frames = 0;
@@ -110,6 +118,7 @@ struct Reference {
         paula_model_write(&paula, PAULA_OPTIONS, options);
         replayer_start(&rp, &song, mem.data(), 0, silence, paula_model_port(&paula));
         frames.clear();
+        voice_frames.clear();
         rows.clear();
         started = true;
     }
@@ -122,11 +131,17 @@ struct Reference {
             if (rows.empty() || s.pos != rows.back().pos || s.row != rows.back().row ||
                 s.speed != rows.back().speed || s.bpm != rows.back().bpm)
                 rows.push_back(s);
-            for (uint32_t i = 0; i < cck; i++)
+            for (uint32_t i = 0; i < cck; i++) {
+                std::vector<int32_t> v(4);
+                for (int k = 0; k < 4; k++) v[k] = paula.voice[k].on ? paula.voice[k].out : 0;
+                voice_frames.push_back(v);
                 frames.push_back(paula_model_step(&paula));
+            }
         }
         paula_frame_t f = frames.front();
         frames.pop_front();
+        for (int k = 0; k < 4; k++) { prev_voices[k] = voices[k]; voices[k] = voice_frames.front()[k]; }
+        voice_frames.pop_front();
         audio_frames++;
         return f;
     }
@@ -135,6 +150,36 @@ static Reference ref;
 static std::vector<uint8_t> status_song;
 static int status_frames;                   // frames whose status line was checked
 static std::vector<int> rows_shown;         // per reference row: frames it was shown in
+
+// the scopes: the testbench's copy of their buffers, and what it has checked
+static int8_t scope_buf[4][4][256];        // Voice, slot, point
+static bool scope_enable;
+static int scope_front;
+static uint64_t scope_enable_changed;      // pixel clock of the last change
+static int scope_frames;
+static uint64_t scope_trace_pixels, scope_points;
+static uint64_t scope_wait_from[4], scope_last_frame[4];
+static int scope_last_index[4] = {-1, -1, -1, -1};
+
+// What the scopes draw at (x, y), 0 for nothing (hw/rtl/scopes.v): the
+// newest capture's trace, else the one before at half brightness, else the
+// one before that at a quarter, else the centre line.
+static uint32_t scope_pixel(int x, int y)
+{
+    if (x < 2 || x >= 638 || y < 96 || y >= 288) return 0;
+    int gx = x - 2, v = gx < 159 ? 0 : gx < 318 ? 1 : gx < 477 ? 2 : 3, col = gx - 159 * v;
+    if (col >= 155) return 0;                      // the gap between scopes
+    static const uint32_t colour[4] = {0x55FF55, 0x55FFFF, 0xFFFF55, 0xFF55FF};
+    int dy = 192 - y;
+    for (int age = 0; age < 3; age++) {
+        int slot = (scope_front - age) & 3;
+        int here = scope_buf[v][slot][col], before = col ? scope_buf[v][slot][col - 1] : here;
+        int lo = here < before ? here : before, hi = here < before ? before : here;
+        if (dy >= lo && dy <= hi)
+            return age == 0 ? colour[v] : age == 1 ? (colour[v] >> 1) & 0x7F7F7F : (colour[v] >> 2) & 0x3F3F3F;
+    }
+    return dy == 0 ? 0x555555 : 0;
+}
 
 struct Change { uint64_t clk; uint16_t value; };
 static std::vector<Change> history[53 * 20];          // per cell, oldest first; starts at 0
@@ -151,6 +196,17 @@ static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
     for (int y = 0; y < 480; y++)
         for (int x : {0, 1, 638, 639})
             if (rgb[y * 640 + x] != 0 && bad++ < 5) FAIL("border pixel (%d, %d) = %06x", x, y, rgb[y * 640 + x]);
+    // the scopes, if they were on (or off) for the whole frame
+    bool scope_steady = scope_enable_changed + 3 < start;
+    bool scopes_shown = scope_steady && scope_enable;
+    if (scopes_shown) {
+        scope_frames++;
+        for (int y = 96; y < 288; y++)
+            for (int x = 2; x < 638; x++) {
+                uint32_t s = scope_pixel(x, y);
+                if (s && s != 0x555555) scope_trace_pixels++;
+            }
+    }
     for (int cell = 0; cell < CELLS; cell++) {
         // the values this cell held during the frame
         std::vector<uint16_t> held;
@@ -164,10 +220,17 @@ static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
         int row = cell / COLS, col = cell % COLS;
         for (int r = 0; r < CH; r++) {
             const uint32_t *got = &rgb[(row * CH + r) * 640 + LEFT + col * CW];
+            bool in_band = row >= 4 && row < 12;
+            if (in_band && !scope_steady) continue;          // the scopes came or went mid-frame
             bool ok = false;
             for (uint16_t v : held) {
                 uint32_t want[12];
                 render_row(v, r, want);
+                if (in_band && scopes_shown)
+                    for (int i = 0; i < CW; i++) {
+                        uint32_t s = scope_pixel(LEFT + col * CW + i, row * CH + r);
+                        if (s) want[i] = s;
+                    }
                 if (!memcmp(got, want, sizeof want)) { ok = true; break; }
             }
             if (!ok && bad++ < 5)
@@ -284,11 +347,36 @@ int main(int argc, char **argv)
             dut->sd_dq_i = sdram.dq_garbage();
             dut->clk = 1;
             dut->eval();
+            if (dut->dbg_scope_start)
+                for (int v = 0; v < 4; v++) scope_wait_from[v] = ref.audio_frames;
             if (!status_song.empty()) {
                 if (dut->dbg_paula_we && dut->dbg_paula_addr == PAULA_OPTIONS)
                     ref.start(status_song, dut->dbg_paula_wdata);     // the firmware starts the Song
                 if (ref.started && dut->audio_valid) {
                     paula_frame_t e = ref.next(clk_no);
+                    // the scopes' capture: each point is its Voice's output >> 7, from
+                    // a rising zero crossing (or the time-out), then every 128 frames
+                    for (int v = 0; v < 4; v++) {
+                        if (!(dut->dbg_scope_we >> v & 1)) continue;
+                        int index = dut->dbg_scope_index >> (8 * v) & 0xFF;
+                        int8_t point = (int8_t)(dut->dbg_scope_points >> (8 * v) & 0xFF);
+                        scope_buf[v][dut->dbg_scope_slot][index] = point;
+                        scope_points++;
+                        int want = (ref.voices[v] >> 7) + ((ref.voices[v] >> 7) >> 1);   // >> 7, times 1.5
+                        if (point != want && failures++ < 20)
+                            printf("FAIL: scope %d point %d is %d, the reference Voice is %d (so %d)\n",
+                                   v + 1, index, point, ref.voices[v], want);
+                        bool crossing = ref.prev_voices[v] < 0 && ref.voices[v] >= 0;
+                        if (index == 0 ? !(crossing || ref.audio_frames - scope_wait_from[v] > 38000)
+                                       : (index != scope_last_index[v] + 1 ||
+                                          ref.audio_frames - scope_last_frame[v] != 128))
+                            if (failures++ < 20)
+                                printf("FAIL: scope %d point %d taken at the wrong time (frame %llu; last point %d "
+                                       "at %llu)\n", v + 1, index, (unsigned long long)ref.audio_frames,
+                                       scope_last_index[v], (unsigned long long)scope_last_frame[v]);
+                        scope_last_index[v] = index;
+                        scope_last_frame[v] = ref.audio_frames;
+                    }
                     if ((int16_t)dut->audio_l != e.left || (int16_t)dut->audio_r != e.right)
                         if (failures++ < 20)
                             printf("FAIL: audio frame %llu: chip (%d, %d), reference (%d, %d)\n",
@@ -318,6 +406,11 @@ int main(int argc, char **argv)
             }
             dut->clk_pixel = 0;
             dut->eval();
+            if ((bool)(dut->dbg_control & 1) != scope_enable) {
+                scope_enable = dut->dbg_control & 1;
+                scope_enable_changed = clk_no;
+            }
+            scope_front = dut->dbg_scope_front;
             sink(dut->tmds0, dut->tmds1, dut->tmds2);
             clk_no++;
             t_pix += 125;
@@ -352,16 +445,13 @@ int main(int argc, char **argv)
         if (ref.started) {
             if (row_text(1, 1, 20) != ref.song.name)
                 FAIL("Song name shown as \"%s\", not \"%s\"", row_text(1, 1, 20).c_str(), ref.song.name);
-            for (int i = 0; i < MOD_SAMPLES; i++) {
-                std::string shown = row_text(4 + i % 16, (i < 16 ? 1 : 27) + 3, 22), want = ref.song.sample[i].name;
-                while (!want.empty() && want.back() == ' ') want.pop_back();
-                if (shown != want) FAIL("Sample %d shown as \"%s\", not \"%s\"", i + 1, shown.c_str(), want.c_str());
-            }
         } else {
             FAIL("the firmware never started the Song");
         }
         printf("status: %d frames checked, %zu reference rows, %llu audio frames match\n", status_frames,
                ref.rows.size(), (unsigned long long)ref.audio_frames);
+        printf("scopes: %d frames, %llu trace pixels, %llu points checked\n", scope_frames,
+               (unsigned long long)scope_trace_pixels, (unsigned long long)scope_points);
     }
     printf("console: %s, %d frames match the model (%d cell-frames caught mid-change), %llu clocks\n",
            failures ? "FAILED" : "ok", frames_checked, cells_seen_changing, (unsigned long long)sys_cycles);

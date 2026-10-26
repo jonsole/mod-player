@@ -35,7 +35,15 @@ module console_wrap #(
     output wire signed [15:0] audio_r,
     output wire        dbg_paula_we,
     output wire [6:0]  dbg_paula_addr,
-    output wire [31:0] dbg_paula_wdata
+    output wire [31:0] dbg_paula_wdata,
+    output wire [63:0] audio_voices,
+    output wire [3:0]  dbg_scope_we,
+    output wire [1:0]  dbg_scope_slot,
+    output wire [31:0] dbg_scope_index,
+    output wire [31:0] dbg_scope_points,
+    output wire        dbg_scope_start,
+    output wire [1:0]  dbg_scope_front,
+    output wire [7:0]  dbg_control
 );
     wire        ext_valid, ext_ready;
     wire [14:2] ext_addr;
@@ -47,7 +55,7 @@ module console_wrap #(
         .clk(clk), .rst(rst), .uart_tx(uart_tx), .uart_rx(uart_rx), .leds(leds), .switches(4'd0),
         .sd_cke(sd_cke), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n),
         .sd_ba(sd_ba), .sd_a(sd_a), .sd_dqm(sd_dqm), .sd_dq_o(sd_dq_o), .sd_dq_oe(sd_dq_oe), .sd_dq_i(sd_dq_i),
-        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r),
+        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),
         .flash_cs_n(), .flash_sck(), .flash_mosi(), .flash_miso(1'b1),     // an erased flash
         .ext_valid(ext_valid), .ext_addr(ext_addr), .ext_wdata(ext_wdata), .ext_wstrb(ext_wstrb),
         .ext_ready(ext_ready), .ext_rdata(ext_rdata),
@@ -56,14 +64,17 @@ module console_wrap #(
 
     hdmi_out #(.COEFS(COEFS), .FONT(FONT)) hdmi (
         .clk(clk), .rst(rst),
-        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r),
+        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),
         .text_valid(ext_valid), .text_addr(ext_addr), .text_wdata(ext_wdata[15:0]), .text_wstrb(ext_wstrb),
         .text_ready(ext_ready), .text_rdata(ext_rdata),
         .clk_pixel(clk_pixel), .rst_pixel(rst_pixel),
         .tmds0(tmds0), .tmds1(tmds1), .tmds2(tmds2),
         .resampler_overrun(), .fifo_overflow(), .fifo_underflow(), .fifo_primed(),
         .dbg_text_we(dbg_text_we), .dbg_text_cell(dbg_text_cell), .dbg_text_data(dbg_text_data),
-        .dbg_text_be(dbg_text_be)
+        .dbg_text_be(dbg_text_be),
+        .dbg_scope_we(dbg_scope_we), .dbg_scope_slot(dbg_scope_slot), .dbg_scope_index(dbg_scope_index),
+        .dbg_scope_points(dbg_scope_points), .dbg_scope_start(dbg_scope_start), .dbg_scope_front(dbg_scope_front),
+        .dbg_control(dbg_control)
     );
 endmodule
 `default_nettype wire

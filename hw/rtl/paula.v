@@ -41,7 +41,11 @@ module paula #(
     // audio: one stereo frame per colour clock
     output reg        out_valid,
     output reg signed [15:0] out_l,
-    output reg signed [15:0] out_r
+    output reg signed [15:0] out_r,
+    // each Voice's part of that frame (sample x volume, 0 when off), for the
+    // HDMI scopes: {voice 3, 2, 1, 0}, steady from before out_valid until
+    // the next frame is mixed. The mix is made from the same values.
+    output reg [63:0] out_voices
 );
 
     // ---- register map --------------------------------------------------
@@ -316,6 +320,8 @@ module paula #(
 
             // ---- one colour clock ----
             S_MIX: begin
+                out_voices <= {voice_sample(v_on[3], v_out[3]), voice_sample(v_on[2], v_out[2]),
+                               voice_sample(v_on[1], v_out[1]), voice_sample(v_on[0], v_out[0])};
                 mix_l <= voice_sample(v_on[0], v_out[0]) + voice_sample(v_on[3], v_out[3]);
                 mix_r <= voice_sample(v_on[1], v_out[1]) + voice_sample(v_on[2], v_out[2]);
                 for (i = 0; i < 4; i = i + 1) begin

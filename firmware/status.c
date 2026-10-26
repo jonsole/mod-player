@@ -10,7 +10,9 @@
  *   row 1   the Song's name
  *   row 2   Pos 003/029  Pat 007  Row 12  Spd 06  BPM 125
  *   row 3   a rule
- *   4..19   Sample names: 1-16 on the left, 17-31 on the right */
+ *   4..11   the four Voice scopes, drawn by the hardware over these rows
+ *           (hw/rtl/scopes.v); the text here is just their numbers
+ *   12..19  free (for the spectrum, issue #24) */
 #define TITLE   ATTR(WHITE, BLUE)
 #define NAME    ATTR(YELLOW, BLACK)
 #define LABEL   ATTR(DARK_GREY, BLACK)
@@ -80,11 +82,9 @@ static void draw_song(const mod_song_t *s)
     text(1, 1, s->name, 20, NAME);
     for (int c = 1; c < CONSOLE_COLS - 1; c++)
         put(3, c, 0xC4, LABEL);                         /* the rule: a line */
-    for (int i = 0; i < MOD_SAMPLES; i++) {
-        int row = 4 + i % 16, col = i < 16 ? 1 : 27;
-        number(row, col, (unsigned)i + 1, 2, LABEL);
-        text(row, col + 3, s->sample[i].name, 22, TEXT);
-    }
+    static const int scope_col[4] = {0, 14, 27, 40};      /* where each scope starts */
+    for (int v = 0; v < 4; v++)
+        put(4, scope_col[v], (uint8_t)('1' + v), LABEL);
 }
 
 /* Copies changed cells to the console, but only in the blanking, and only
@@ -119,6 +119,7 @@ void status_update(void)
             for (int c = 0; c < CONSOLE_COLS; c++)
                 shown[r][c] = 0xFFFFu;                  /* redraw every cell */
         active = 1;
+        console_control(CONSOLE_SCOPES);
         drawn_load = player_load_count();
         drawn_pos_valid = -1;
         drawn_state = -1;

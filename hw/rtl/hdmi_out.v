@@ -16,6 +16,7 @@ module hdmi_out #(
     input wire               audio_valid,
     input wire signed [15:0] audio_l,
     input wire signed [15:0] audio_r,
+    input wire [63:0]        audio_voices,      // each Voice's part, for the scopes
     // system clock: the text console's bus (hw/rtl/text_console.v)
     input wire               text_valid,
     input wire [14:2]        text_addr,
@@ -38,7 +39,15 @@ module hdmi_out #(
     output wire              dbg_text_we,
     output wire [11:0]       dbg_text_cell,
     output wire [15:0]       dbg_text_data,
-    output wire [1:0]        dbg_text_be
+    output wire [1:0]        dbg_text_be,
+    // the scopes' capture (system clock) and the half shown (pixel clock), for testbenches
+    output wire [3:0]        dbg_scope_we,
+    output wire [1:0]        dbg_scope_slot,
+    output wire [31:0]       dbg_scope_index,   // {voice 3, 2, 1, 0}
+    output wire [31:0]       dbg_scope_points,
+    output wire              dbg_scope_start,
+    output wire [1:0]        dbg_scope_front,
+    output wire [7:0]        dbg_control        // the console's control register
 );
     wire               rs_valid;
     wire signed [23:0] rs_l, rs_r;
@@ -58,19 +67,34 @@ module hdmi_out #(
     );
 
     wire [9:0]  px, py;
-    wire [23:0] rgb;
+    wire [23:0] rgb, scope_rgb;
+    wire [7:0]  control;
+    wire        scope_on;
+    assign dbg_control = control;
     text_console #(.FONT(FONT)) console (
         .clk(clk), .rst(rst),
         .bus_valid(text_valid), .bus_addr(text_addr), .bus_wdata(text_wdata), .bus_wstrb(text_wstrb),
-        .bus_ready(text_ready), .bus_rdata(text_rdata),
+        .bus_ready(text_ready), .bus_rdata(text_rdata), .control(control),
         .clk_pixel(clk_pixel), .rst_pixel(rst_pixel), .pixel_x(px), .pixel_y(py), .rgb(rgb),
         .dbg_we(dbg_text_we), .dbg_cell(dbg_text_cell), .dbg_data(dbg_text_data), .dbg_be(dbg_text_be)
     );
 
+    scopes scopes (
+        .clk(clk), .rst(rst), .enable(control[0]),
+        .audio_valid(audio_valid), .voices(audio_voices),
+        .clk_pixel(clk_pixel), .rst_pixel(rst_pixel), .pixel_x(px), .pixel_y(py),
+        .on(scope_on), .rgb(scope_rgb),
+        .dbg_we(dbg_scope_we), .dbg_slot(dbg_scope_slot),
+        .dbg_index_0(dbg_scope_index[7:0]), .dbg_index_1(dbg_scope_index[15:8]),
+        .dbg_index_2(dbg_scope_index[23:16]), .dbg_index_3(dbg_scope_index[31:24]),
+        .dbg_points(dbg_scope_points), .dbg_start(dbg_scope_start), .dbg_front(dbg_scope_front)
+    );
+
+    // the scopes over the text: both are 5 clocks behind the timing
     hdmi_tx #(.RGB_DELAY(5)) tx (
         .clk(clk_pixel), .rst(rst_pixel),
         .audio_tick(take), .audio_l(hd_l), .audio_r(hd_r),
-        .pixel_x(px), .pixel_y(py), .rgb(rgb),
+        .pixel_x(px), .pixel_y(py), .rgb(scope_on ? scope_rgb : rgb),
         .tmds0(tmds0), .tmds1(tmds1), .tmds2(tmds2)
     );
 endmodule

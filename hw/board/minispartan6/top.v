@@ -63,6 +63,7 @@ module top #(
     wire [15:0] sd_dq_o, sd_dq_i;
     wire        audio_valid;
     wire signed [15:0] audio_l, audio_r;
+    wire [63:0] audio_voices;
     wire        ext_valid, ext_ready;
     wire [14:2] ext_addr;
     wire [31:0] ext_wdata, ext_rdata;
@@ -74,7 +75,7 @@ module top #(
         .sd_cke(SDRAM_CKE), .sd_cs_n(SDRAM_CSn), .sd_ras_n(SDRAM_RASn), .sd_cas_n(SDRAM_CASn),
         .sd_we_n(SDRAM_WEn), .sd_ba(SDRAM_BA), .sd_a(SDRAM_A), .sd_dqm({SDRAM_UDQM, SDRAM_LDQM}),
         .sd_dq_o(sd_dq_o), .sd_dq_oe(sd_dq_oe), .sd_dq_i(sd_dq_i),
-        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r),
+        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),
         .flash_cs_n(FLASH_CS), .flash_sck(FLASH_CCLK), .flash_mosi(FLASH_MOSI), .flash_miso(FLASH_MISO),
         .ext_valid(ext_valid), .ext_addr(ext_addr), .ext_wdata(ext_wdata), .ext_wstrb(ext_wstrb),
         .ext_ready(ext_ready), .ext_rdata(ext_rdata),
@@ -115,13 +116,15 @@ module top #(
     wire [9:0] tmds0, tmds1, tmds2;
     hdmi_out #(.COEFS(COEFS), .FONT(FONT)) hdmi (
         .clk(clk), .rst(rst),
-        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r),
+        .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),
         .text_valid(ext_valid), .text_addr(ext_addr), .text_wdata(ext_wdata[15:0]), .text_wstrb(ext_wstrb),
         .text_ready(ext_ready), .text_rdata(ext_rdata),
         .clk_pixel(clk_pixel), .rst_pixel(rst_pixel),
         .tmds0(tmds0), .tmds1(tmds1), .tmds2(tmds2),
         .resampler_overrun(), .fifo_overflow(), .fifo_underflow(), .fifo_primed(),
-        .dbg_text_we(), .dbg_text_cell(), .dbg_text_data(), .dbg_text_be()
+        .dbg_text_we(), .dbg_text_cell(), .dbg_text_data(), .dbg_text_be(),
+        .dbg_scope_we(), .dbg_scope_slot(), .dbg_scope_index(), .dbg_scope_points(),
+        .dbg_scope_start(), .dbg_scope_front(), .dbg_control()
     );
     hdmi_phy hdmi_phy (
         .clk(clk), .clk_pixel(clk_pixel), .rst_pixel(rst_pixel),

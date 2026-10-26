@@ -3,6 +3,7 @@ HDMI output together (build/console_tb), every frame decoded and checked
 against the console model; the firmware's test screen is also compared
 with the reference image tests/golden/console-test-screen.png."""
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -72,7 +73,8 @@ class Console(unittest.TestCase):
 def status_song():
     """A short Song that moves through Positions, Patterns, speeds and
     tempos quickly: Pattern 0 at speed 3, Pattern 1 at speed 4 and 160 BPM,
-    each broken off after 9 rows; Positions 0, 1, 0."""
+    each broken off after 9 rows; Positions 0, 1, 0. All four channels
+    play notes, so every scope has a trace."""
     song = modgen.Song("status test")
     song.sample(1, modgen.sine_cycle(32) * 4, volume=50, loop=(0, 128), name="sine wave")
     song.sample(2, modgen.square_cycle(16) * 8, volume=40, loop=(0, 128), name="square")
@@ -84,6 +86,10 @@ def status_song():
         for row in range(0, 9, 2):
             song.note(pattern, row, 0, period=modgen.C2 + 20 * row, sample=1 + pattern)
         song.note(pattern, 8, 1, effect=0xD, param=0)            # on to the next Position
+        for row in (1, 3, 5):
+            song.note(pattern, row, 1, period=modgen.E2, sample=2)
+            song.note(pattern, row + 1, 2, period=modgen.G2, sample=17)
+            song.note(pattern, row, 3, period=modgen.C1, sample=1)
     song.positions = [0, 1, 0]
     return song.build()
 
@@ -99,6 +105,20 @@ class StatusScreen(unittest.TestCase):
         self.assertIn("status:", out)
         checked = int(out.split("status: ")[1].split()[0])
         self.assertGreater(checked, 90, out)
+
+    def test_the_scopes_trace_each_voice(self):
+        # issue #23: console_tb checks every captured point against the
+        # reference Voices and every frame's scope pixels against the traces
+        song = status_song()
+        rc, out, ppm = run_console(steps=[("ready", modplayer.encode_load(song))], expect="OK status test",
+                                   frames=40, song=song, max_cycles=200000000)
+        self.assertEqual(rc, 0, out)
+        m = re.search(r"scopes: (\d+) frames, (\d+) trace pixels, (\d+) points checked", out)
+        self.assertIsNotNone(m, out)
+        frames, pixels, points = (int(g) for g in m.groups())
+        self.assertGreater(frames, 30, out)
+        self.assertGreater(pixels, 1000, out)
+        self.assertGreater(points, 4 * 155 * 20, out)
 
 
 PALETTE = [0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,

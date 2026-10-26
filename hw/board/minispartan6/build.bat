@@ -63,6 +63,7 @@ if defined HDMI (
   >> top.prj echo verilog work "%RTL%\hdmi_audio_fifo.v"
   >> top.prj echo verilog work "%RTL%\hdmi_tx.v"
   >> top.prj echo verilog work "%RTL%\text_console.v"
+  >> top.prj echo verilog work "%RTL%\scopes.v"
   >> top.prj echo verilog work "%RTL%\tmds_encoder.v"
   >> top.prj echo verilog work "..\hdmi_phy.v"
 )

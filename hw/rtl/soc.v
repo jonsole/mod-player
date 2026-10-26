@@ -52,6 +52,7 @@ module soc #(
     output wire                  audio_valid,
     output wire signed   [15:0]  audio_l,
     output wire signed   [15:0]  audio_r,
+    output wire          [63:0]  audio_voices,     // each Voice's part, for the scopes
     // SPI flash
     output wire                  flash_cs_n,
     output wire                  flash_sck,
@@ -134,7 +135,7 @@ module soc #(
         .reg_rdata(p_rdata_reg),
         .mem_req(p_req), .mem_addr(p_addr), .mem_we(p_we), .mem_wdata(p_wdata), .mem_be(p_be),
         .mem_ack(p_ack), .mem_rdata(p_rdata),
-        .out_valid(audio_valid), .out_l(audio_l), .out_r(audio_r)
+        .out_valid(audio_valid), .out_l(audio_l), .out_r(audio_r), .out_voices(audio_voices)
     );
     assign dbg_paula_we = paula_we;
     assign dbg_paula_addr = mem_addr[6:0];

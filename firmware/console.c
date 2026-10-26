@@ -46,6 +46,12 @@ void console_clear_row(int row, int col, uint8_t attr)
         console_put(row, col++, ' ', attr);
 }
 
+void console_control(uint32_t bits)
+{
+    if (console_present())
+        CONSOLE_STATUS = bits;
+}
+
 void console_clear(uint8_t attr)
 {
     for (int row = 0; row < CONSOLE_ROWS; row++)

@@ -9,7 +9,9 @@
 //   addr[14] = 0: cell addr[13:2] (0..1059), write only: data[7:0] character,
 //                 data[15:8] attribute (byte enables respected)
 //   addr[14] = 1: read: bit 31 = 1 (a console is present), bit 30 = in the
-//                 vertical blanking, bits 23:0 = frames shown so far
+//                 vertical blanking, bits 23:0 = frames shown so far;
+//                 write: the control register, data[7:0] (bit 0: show the
+//                 Voice scopes, hw/rtl/scopes.v)
 // A write is held in a register and handed to the pixel clock, which writes
 // the text RAM; the next write waits until it has (about 150 ns). So the RAM
 // is only ever written and read on one clock: no read can see a half-written
@@ -33,6 +35,7 @@ module text_console #(
     input wire [3:0]   bus_wstrb,
     output wire        bus_ready,
     output wire [31:0] bus_rdata,
+    output reg  [7:0]  control,            // the control register (system clock)
     // pixel clock
     input wire         clk_pixel,
     input wire         rst_pixel,
@@ -67,7 +70,10 @@ module text_console #(
             frame_sync <= 3'd0;
             vblank_sync <= 3'd0;
             frames <= 24'd0;
+            control <= 8'd0;
         end else begin
+            if (bus_valid && is_write && bus_addr[14])
+                control <= bus_wdata[7:0];
             ack_sync <= {ack_sync[1:0], ack_t};
             frame_sync <= {frame_sync[1:0], frame_t};
             vblank_sync <= {vblank_sync[1:0], vblank};

@@ -17,7 +17,7 @@ Every command is one byte, sometimes followed by binary arguments (little-endian
 | Flash write | `W`, address (u32), length (u32), the data, CRC-32 of the data (u32). Stops the Song; the address must be a multiple of 4096. The board erases the 4 KB sectors (64 KB blocks where it can) the data covers, programs it and reads it back | `OK written`, or `ERR <reason>` (checksum mismatch, address, past the end of the flash, or `flash doesn't read back as written`) after the whole transfer. Erasing takes up to a few seconds per 64 KB, so allow time |
 | Flash CRC | `C`, address (u32), length (u32) | `OK crc <8 hex digits>`: CRC-32 of that range of flash |
 | Boot loader | `B`: stop the Song and return to the boot loader | `OK boot loader <version>`, from the boot loader |
-| Text | `T`, row, column, attribute, length (one byte each), then that many characters: put them on the HDMI text console (ADR-0012: 53 x 20, code page 437; attribute = background colour << 4 \| foreground) | `OK`, or `ERR no text console (not the HDMI build)` |
+| Text | `T`, row, column, attribute, length (one byte each), then that many characters: put them on the HDMI text console (ADR-0012: 53 x 20, code page 437; attribute = background colour << 4 \| foreground). Rows 4-11 are under the Voice scopes while a Song's status screen is up | `OK`, or `ERR no text console (not the HDMI build)` |
 
 ## Boot loader
 

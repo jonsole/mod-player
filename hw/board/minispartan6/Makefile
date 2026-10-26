@@ -24,7 +24,7 @@ DEFINE  :=
 # make HDMI=1: with HDMI output (ADR-0010), in build-hdmi/
 ifeq ($(HDMI),1)
 BUILD   := build-hdmi
-RTL     += $(addprefix $(ROOT)/hw/rtl/, hdmi_out.v resampler.v hdmi_audio_fifo.v hdmi_tx.v tmds_encoder.v text_console.v) hdmi_phy.v
+RTL     += $(addprefix $(ROOT)/hw/rtl/, hdmi_out.v resampler.v hdmi_audio_fifo.v hdmi_tx.v tmds_encoder.v text_console.v scopes.v) hdmi_phy.v
 UCF     += hdmi.ucf
 DEFINE  := '-define {HDMI}'
 endif
