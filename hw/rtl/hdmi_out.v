@@ -3,12 +3,17 @@
 // adds the clocks and the serialiser.
 //
 //   Paula frames -> Resampler (48 kHz) -> dual-clock FIFO -> hdmi_tx
-//   CPU writes -> text console (53 x 20 characters) -> hdmi_tx's picture
+//   CPU writes -> text console (53 x 20 characters) -> hdmi_tx's picture,
+//   with the Voice scopes (from Paula's per-Voice output) and the spectrum
+//   analyser (from the Resampler's output) drawn over it
 //
 // Plain Verilog-2001 for Xilinx ISE (ADR-0004).
 module hdmi_out #(
     parameter COEFS = "resampler_coefs.hex",
-    parameter FONT  = "console_font.hex"
+    parameter FONT  = "console_font.hex",
+    parameter SPECTRUM_WINDOW = "spectrum_window.hex",
+    parameter SPECTRUM_SINE   = "spectrum_sine.hex",
+    parameter SPECTRUM_BARS   = "spectrum_bars.hex"
 ) (
     // system clock: Paula's frames, one per colour clock
     input wire               clk,
@@ -47,7 +52,11 @@ module hdmi_out #(
     output wire [31:0]       dbg_scope_points,
     output wire              dbg_scope_start,
     output wire [1:0]        dbg_scope_front,
-    output wire [7:0]        dbg_control        // the console's control register
+    output wire [7:0]        dbg_control,       // the console's control register
+    // the spectrum's bars and peaks (system clock) and its display copy (pixel clock)
+    output wire [383:0]      dbg_spectrum_bars,
+    output wire [383:0]      dbg_spectrum_peaks,
+    output wire              dbg_spectrum_copy
 );
     wire               rs_valid;
     wire signed [23:0] rs_l, rs_r;
@@ -67,7 +76,8 @@ module hdmi_out #(
     );
 
     wire [9:0]  px, py;
-    wire [23:0] rgb, scope_rgb;
+    wire [23:0] rgb, scope_rgb, spectrum_rgb;
+    wire        spectrum_on;
     wire [7:0]  control;
     wire        scope_on;
     assign dbg_control = control;
@@ -90,11 +100,20 @@ module hdmi_out #(
         .dbg_points(dbg_scope_points), .dbg_start(dbg_scope_start), .dbg_front(dbg_scope_front)
     );
 
-    // the scopes over the text: both are 5 clocks behind the timing
+    spectrum #(.WINDOW(SPECTRUM_WINDOW), .SINE(SPECTRUM_SINE), .BARS(SPECTRUM_BARS)) spectrum (
+        .clk(clk), .rst(rst), .enable(control[1]),
+        .in_valid(rs_valid), .in_l(rs_l), .in_r(rs_r),
+        .clk_pixel(clk_pixel), .rst_pixel(rst_pixel), .pixel_x(px), .pixel_y(py),
+        .on(spectrum_on), .rgb(spectrum_rgb),
+        .dbg_start(), .dbg_done(), .dbg_bars(dbg_spectrum_bars), .dbg_peaks(dbg_spectrum_peaks),
+        .dbg_copy(dbg_spectrum_copy)
+    );
+
+    // the scopes and the spectrum over the text: all are 5 clocks behind the timing
     hdmi_tx #(.RGB_DELAY(5)) tx (
         .clk(clk_pixel), .rst(rst_pixel),
         .audio_tick(take), .audio_l(hd_l), .audio_r(hd_r),
-        .pixel_x(px), .pixel_y(py), .rgb(scope_on ? scope_rgb : rgb),
+        .pixel_x(px), .pixel_y(py), .rgb(scope_on ? scope_rgb : spectrum_on ? spectrum_rgb : rgb),
         .tmds0(tmds0), .tmds1(tmds1), .tmds2(tmds2)
     );
 endmodule

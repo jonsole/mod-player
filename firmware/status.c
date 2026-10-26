@@ -12,7 +12,8 @@
  *   row 3   a rule
  *   4..11   the four Voice scopes, drawn by the hardware over these rows
  *           (hw/rtl/scopes.v); the text here is just their numbers
- *   12..19  free (for the spectrum, issue #24) */
+ *   12..19  the spectrum analyser of the mix, drawn by the hardware
+ *           (hw/rtl/spectrum.v) */
 #define TITLE   ATTR(WHITE, BLUE)
 #define NAME    ATTR(YELLOW, BLACK)
 #define LABEL   ATTR(DARK_GREY, BLACK)
@@ -119,7 +120,7 @@ void status_update(void)
             for (int c = 0; c < CONSOLE_COLS; c++)
                 shown[r][c] = 0xFFFFu;                  /* redraw every cell */
         active = 1;
-        console_control(CONSOLE_SCOPES);
+        console_control(CONSOLE_SCOPES | CONSOLE_SPECTRUM);
         drawn_load = player_load_count();
         drawn_pos_valid = -1;
         drawn_state = -1;

@@ -32,7 +32,8 @@ void console_clear_row(int row, int col, uint8_t attr);
 void console_clear(uint8_t attr);
 
 /* The control register: what the hardware draws over the text. */
-#define CONSOLE_SCOPES 0x1u      /* the four Voice scopes, rows 4-11 (hw/rtl/scopes.v) */
+#define CONSOLE_SCOPES   0x1u    /* the four Voice scopes, rows 4-11 (hw/rtl/scopes.v) */
+#define CONSOLE_SPECTRUM 0x2u    /* the spectrum analyser, rows 12-19 (hw/rtl/spectrum.v) */
 void console_control(uint32_t bits);
 
 #endif

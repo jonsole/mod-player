@@ -11,7 +11,7 @@ ORACLE_SRC   := tests/oracle/pt2_log.c $(wildcard tests/oracle/pt2-clone/*.c) ho
 
 UNIT_TESTS := $(patsubst tests/unit/%.c,$(BUILD)/%,$(wildcard tests/unit/test_*.c))
 
-.PHONY: all test hw-test soc-test boot-test console-test font-check dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean \
+.PHONY: all test hw-test soc-test boot-test console-test font-check spectrum-test spectrum-tables-check dsm-test fullchip-test board-test synth-check firmware board-firmware firmware-check clean \
         coefs-check resampler-test hdmi-test hdmi-chain-test hdmi-board-check flash-model-test
 all: $(BUILD)/render $(BUILD)/replayer_log $(BUILD)/pt2_log
 
@@ -32,7 +32,7 @@ $(BUILD)/pt2_log: $(ORACLE_SRC) $(wildcard tests/oracle/stubs/*.h) | $(BUILD)
 $(BUILD)/test_%: tests/unit/test_%.c $(HOST_SRC) $(REPLAYER_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE $(INC) -o $@ $^ -lm
 
-test: $(UNIT_TESTS) all hw-test flash-model-test soc-test boot-test console-test font-check dsm-test fullchip-test board-test firmware-check \
+test: $(UNIT_TESTS) all hw-test flash-model-test soc-test boot-test console-test font-check spectrum-test dsm-test fullchip-test board-test firmware-check \
       resampler-test hdmi-test hdmi-chain-test
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; $$t; done
 	@echo "== render command, pt2-clone oracle, PC script"; python3 -m unittest tests.test_render tests.test_oracle tests.test_modplayer
@@ -253,6 +253,9 @@ resampler-test: $(BUILD)/resampler_tb coefs-check
 		exit $$status
 
 # ---- HDMI transmitter (ADR-0010) ------------------------------------------------
+SPECTRUM_TABLES := hw/rtl/spectrum_window.hex hw/rtl/spectrum_sine.hex hw/rtl/spectrum_bars.hex
+SPECTRUM_PARAMS := -GSPECTRUM_WINDOW='"$(CURDIR)/hw/rtl/spectrum_window.hex"' \
+                   -GSPECTRUM_SINE='"$(CURDIR)/hw/rtl/spectrum_sine.hex"' -GSPECTRUM_BARS='"$(CURDIR)/hw/rtl/spectrum_bars.hex"'
 HDMI_RTL := hw/rtl/hdmi_tx.v hw/rtl/tmds_encoder.v
 
 $(BUILD)/hdmi_tb: $(HDMI_RTL) hw/sim/hdmi_tb.cpp hw/sim/hdmi_sink.h | $(BUILD)
@@ -289,11 +292,11 @@ hdmi-test: $(BUILD)/tmds_tb $(BUILD)/hdmi_tb $(BUILD)/hdmi_tb_d5 $(BUILD)/serial
 
 # The whole HDMI audio chain on two clocks: Songs' Paula frames in, decoded
 # HDMI audio out, equal to the Resampler C model's output
-HDMI_OUT_RTL := hw/rtl/hdmi_out.v hw/rtl/resampler.v hw/rtl/hdmi_audio_fifo.v hw/rtl/text_console.v hw/rtl/scopes.v $(HDMI_RTL)
-$(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex hw/sim/hdmi_chain_tb.cpp hw/sim/hdmi_sink.h \
+HDMI_OUT_RTL := hw/rtl/hdmi_out.v hw/rtl/resampler.v hw/rtl/hdmi_audio_fifo.v hw/rtl/text_console.v hw/rtl/scopes.v hw/rtl/spectrum.v $(HDMI_RTL)
+$(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex $(SPECTRUM_TABLES) hw/sim/hdmi_chain_tb.cpp hw/sim/hdmi_sink.h \
 		$(SIM_C) host/resampler.c $(wildcard firmware/replayer/*.h host/*.h) | $(BUILD)
 	$(VERILATOR) $(VFLAGS) --top-module hdmi_out -GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' \
-		-GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' $(HDMI_OUT_RTL) \
+		-GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' $(SPECTRUM_PARAMS) $(HDMI_OUT_RTL) \
 		$(CURDIR)/hw/sim/hdmi_chain_tb.cpp $(addprefix $(CURDIR)/,$(SIM_C) host/resampler.c) \
 		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
 		-Mdir $(BUILD)/obj_hdmi_chain -o hdmi_chain_tb >$(BUILD)/hdmi_chain_tb.log 2>&1 || (cat $(BUILD)/hdmi_chain_tb.log; false)
@@ -302,13 +305,13 @@ $(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/rtl/consol
 HDMI_CHAIN_SECONDS ?= 2
 # The text console end to end (issue #21): CPU and firmware, HDMI out,
 # every frame decoded and checked against the console model
-$(BUILD)/console_tb: $(SOC_RTL) $(HDMI_OUT_RTL) hw/rtl/console_font.hex hw/rtl/resampler_coefs.hex \
+$(BUILD)/console_tb: $(SOC_RTL) $(HDMI_OUT_RTL) hw/rtl/console_font.hex hw/rtl/resampler_coefs.hex $(SPECTRUM_TABLES) \
 		hw/sim/console_wrap.v hw/sim/console_tb.cpp hw/sim/hdmi_sink.h hw/sim/sdram_model.h \
 		$(SIM_C) $(wildcard firmware/replayer/*.h host/*.h) $(BUILD)/fw/firmware0.hex | $(BUILD)
 	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module console_wrap \
 		$(foreach n,0 1 2 3,-GFW$(n)='"$(CURDIR)/$(BUILD)/fw/firmware$(n).hex"') \
 		-GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' -GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' \
-		hw/sim/console_wrap.v $(SOC_RTL) $(HDMI_OUT_RTL) $(CURDIR)/hw/sim/console_tb.cpp \
+		$(SPECTRUM_PARAMS) hw/sim/console_wrap.v $(SOC_RTL) $(HDMI_OUT_RTL) $(CURDIR)/hw/sim/console_tb.cpp \
 		$(addprefix $(CURDIR)/,$(SIM_C)) \
 		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
 		-Mdir $(BUILD)/obj_console -o console_tb >$(BUILD)/console_tb.log 2>&1 || (cat $(BUILD)/console_tb.log; false)
@@ -331,6 +334,32 @@ console-test: $(BUILD)/console_tb $(BUILD)/text_console_tb $(BUILD)/scopes_tb
 	$(BUILD)/text_console_tb 400000
 	$(BUILD)/scopes_tb 120
 	python3 -m unittest tests.test_console
+
+# ---- spectrum analyser (issue #24, ADR-0014) ------------------------------------
+# The tables are generated once and committed; this checks they are what
+# tools/spectrum_tables.py makes.
+spectrum-tables-check: | $(BUILD)
+	@python3 tools/spectrum_tables.py $(BUILD)/spectrum_tables.h $(BUILD)/spectrum_window.hex \
+		$(BUILD)/spectrum_sine.hex $(BUILD)/spectrum_bars.hex
+	@cmp -s $(BUILD)/spectrum_tables.h host/spectrum_tables.h && \
+	 for t in window sine bars; do cmp -s $(BUILD)/spectrum_$$t.hex hw/rtl/spectrum_$$t.hex || exit 1; done || \
+	  { echo "spectrum tables are out of date: run tools/spectrum_tables.py host/spectrum_tables.h $(SPECTRUM_TABLES)"; exit 1; }
+	@echo "== spectrum tables are up to date"
+
+# The Verilog against the C model, bar for bar and pixel for pixel
+$(BUILD)/spectrum_tb: hw/rtl/spectrum.v $(SPECTRUM_TABLES) hw/sim/spectrum_tb.cpp host/spectrum.c host/spectrum.h \
+		host/spectrum_tables.h $(SIM_C) host/resampler.c $(wildcard firmware/replayer/*.h host/*.h) | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module spectrum -GWINDOW='"$(CURDIR)/hw/rtl/spectrum_window.hex"' \
+		-GSINE='"$(CURDIR)/hw/rtl/spectrum_sine.hex"' -GBARS='"$(CURDIR)/hw/rtl/spectrum_bars.hex"' \
+		hw/rtl/spectrum.v $(CURDIR)/hw/sim/spectrum_tb.cpp \
+		$(addprefix $(CURDIR)/,$(SIM_C) host/resampler.c host/spectrum.c) \
+		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
+		-Mdir $(BUILD)/obj_spectrum -o spectrum_tb >$(BUILD)/spectrum_tb.log 2>&1 || (cat $(BUILD)/spectrum_tb.log; false)
+	cp $(BUILD)/obj_spectrum/spectrum_tb $@
+
+spectrum-test: $(BUILD)/spectrum_tb spectrum-tables-check
+	$(BUILD)/spectrum_tb 240
+	$(BUILD)/spectrum_tb 120 tests/songs/gods.mod
 
 # The font is made from Spleen (hw/rtl/third_party/spleen) by
 # tools/console_font.py and committed; this checks it is what the tool makes.
@@ -356,7 +385,7 @@ hdmi-board-check: $(BUILD)/fw/boot0.hex
 	@echo "read_verilog -DHDMI $(addprefix $(CURDIR)/,$(filter-out %sim_primitives.v,$(HDMI_BOARD_RTL)))" > $(BUILD)/synth_hdmi.ys
 	@echo "synth_xilinx -family xc6s -top top" >> $(BUILD)/synth_hdmi.ys
 	@echo "stat" >> $(BUILD)/synth_hdmi.ys
-	cp hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex $(BUILD)/fw/
+	cp hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex $(SPECTRUM_TABLES) $(BUILD)/fw/
 	cd $(BUILD)/fw && yosys -q -l ../yosys_hdmi.log -s ../synth_hdmi.ys >/dev/null
 	@echo "Spartan-6 resources with HDMI (Yosys estimate; the XC6SLX25 has 15032 LUTs, 30064 flip-flops,"
 	@echo "38 DSP48A1 and 52 RAMB16):"

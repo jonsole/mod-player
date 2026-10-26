@@ -11,7 +11,8 @@
 //   addr[14] = 1: read: bit 31 = 1 (a console is present), bit 30 = in the
 //                 vertical blanking, bits 23:0 = frames shown so far;
 //                 write: the control register, data[7:0] (bit 0: show the
-//                 Voice scopes, hw/rtl/scopes.v)
+//                 Voice scopes, hw/rtl/scopes.v; bit 1: the spectrum
+//                 analyser, hw/rtl/spectrum.v)
 // A write is held in a register and handed to the pixel clock, which writes
 // the text RAM; the next write waits until it has (about 150 ns). So the RAM
 // is only ever written and read on one clock: no read can see a half-written

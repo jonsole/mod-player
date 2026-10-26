@@ -124,7 +124,8 @@ module top #(
         .resampler_overrun(), .fifo_overflow(), .fifo_underflow(), .fifo_primed(),
         .dbg_text_we(), .dbg_text_cell(), .dbg_text_data(), .dbg_text_be(),
         .dbg_scope_we(), .dbg_scope_slot(), .dbg_scope_index(), .dbg_scope_points(),
-        .dbg_scope_start(), .dbg_scope_front(), .dbg_control()
+        .dbg_scope_start(), .dbg_scope_front(), .dbg_control(),
+        .dbg_spectrum_bars(), .dbg_spectrum_peaks(), .dbg_spectrum_copy()
     );
     hdmi_phy hdmi_phy (
         .clk(clk), .clk_pixel(clk_pixel), .rst_pixel(rst_pixel),

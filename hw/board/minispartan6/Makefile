@@ -24,7 +24,7 @@ DEFINE  :=
 # make HDMI=1: with HDMI output (ADR-0010), in build-hdmi/
 ifeq ($(HDMI),1)
 BUILD   := build-hdmi
-RTL     += $(addprefix $(ROOT)/hw/rtl/, hdmi_out.v resampler.v hdmi_audio_fifo.v hdmi_tx.v tmds_encoder.v text_console.v scopes.v) hdmi_phy.v
+RTL     += $(addprefix $(ROOT)/hw/rtl/, hdmi_out.v resampler.v hdmi_audio_fifo.v hdmi_tx.v tmds_encoder.v text_console.v scopes.v spectrum.v) hdmi_phy.v
 UCF     += hdmi.ucf
 DEFINE  := '-define {HDMI}'
 endif
@@ -59,7 +59,7 @@ $(BUILD)/top.xst: Makefile | $(BUILD)
 
 $(BUILD)/top.ngc: $(RTL) top.xcf $(BUILD)/top.prj $(BUILD)/top.xst firmware
 	cp $(FW)/boot0.hex $(FW)/boot1.hex $(FW)/boot2.hex $(FW)/boot3.hex $(BUILD)/
-	cp $(ROOT)/hw/rtl/resampler_coefs.hex $(ROOT)/hw/rtl/console_font.hex $(BUILD)/
+	cp $(ROOT)/hw/rtl/resampler_coefs.hex $(ROOT)/hw/rtl/console_font.hex $(ROOT)/hw/rtl/spectrum_*.hex $(BUILD)/
 	mkdir -p $(BUILD)/xst_tmp $(BUILD)/xst_hdp
 	cd $(BUILD) && xst -ifn top.xst -ofn top.srp
 

@@ -76,8 +76,11 @@ The HDMI picture as 53 x 20 character cells, each a character and its colours, w
 _Avoid_: terminal, frame buffer, OSD
 
 **Status screen**:
-What the Console shows while a Song plays: its name, Position, Pattern, Row, speed and BPM, and the Scopes.
+What the Console shows while a Song plays: its name, Position, Pattern, Row, speed and BPM, the Scopes and the Spectrum.
 
 **Scope**:
 An oscilloscope trace of one Voice's output on the Status screen, drawn by the hardware (ADR-0013).
 _Avoid_: waveform view, oscilloscope (for the whole band)
+
+**Spectrum**:
+The 48-bar spectrum analyser of the mix on the Status screen, computed by a hardware FFT (ADR-0014).

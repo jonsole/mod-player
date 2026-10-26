@@ -9,7 +9,10 @@ module console_wrap #(
     parameter FW2 = "firmware2.hex",
     parameter FW3 = "firmware3.hex",
     parameter COEFS = "resampler_coefs.hex",
-    parameter FONT = "console_font.hex"
+    parameter FONT = "console_font.hex",
+    parameter SPECTRUM_WINDOW = "spectrum_window.hex",
+    parameter SPECTRUM_SINE   = "spectrum_sine.hex",
+    parameter SPECTRUM_BARS   = "spectrum_bars.hex"
 ) (
     input wire         clk,
     input wire         rst,
@@ -43,7 +46,10 @@ module console_wrap #(
     output wire [31:0] dbg_scope_points,
     output wire        dbg_scope_start,
     output wire [1:0]  dbg_scope_front,
-    output wire [7:0]  dbg_control
+    output wire [7:0]  dbg_control,
+    output wire [383:0] dbg_spectrum_bars,
+    output wire [383:0] dbg_spectrum_peaks,
+    output wire        dbg_spectrum_copy
 );
     wire        ext_valid, ext_ready;
     wire [14:2] ext_addr;
@@ -62,7 +68,8 @@ module console_wrap #(
         .dbg_paula_we(dbg_paula_we), .dbg_paula_addr(dbg_paula_addr), .dbg_paula_wdata(dbg_paula_wdata)
     );
 
-    hdmi_out #(.COEFS(COEFS), .FONT(FONT)) hdmi (
+    hdmi_out #(.COEFS(COEFS), .FONT(FONT), .SPECTRUM_WINDOW(SPECTRUM_WINDOW), .SPECTRUM_SINE(SPECTRUM_SINE),
+               .SPECTRUM_BARS(SPECTRUM_BARS)) hdmi (
         .clk(clk), .rst(rst),
         .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),
         .text_valid(ext_valid), .text_addr(ext_addr), .text_wdata(ext_wdata[15:0]), .text_wstrb(ext_wstrb),
@@ -74,7 +81,9 @@ module console_wrap #(
         .dbg_text_be(dbg_text_be),
         .dbg_scope_we(dbg_scope_we), .dbg_scope_slot(dbg_scope_slot), .dbg_scope_index(dbg_scope_index),
         .dbg_scope_points(dbg_scope_points), .dbg_scope_start(dbg_scope_start), .dbg_scope_front(dbg_scope_front),
-        .dbg_control(dbg_control)
+        .dbg_control(dbg_control),
+        .dbg_spectrum_bars(dbg_spectrum_bars), .dbg_spectrum_peaks(dbg_spectrum_peaks),
+        .dbg_spectrum_copy(dbg_spectrum_copy)
     );
 endmodule
 `default_nettype wire

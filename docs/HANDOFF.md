@@ -11,7 +11,7 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 | 3 | Board build: `top.v`, pins, ISE build (Makefile + `build.bat`) | Done 2026-10-25: built with ISE 14.7 on Windows 11; boots and plays `gods.mod` on the board (issue #16). Fixes and setup notes in `docs/board.md` |
 | 5 | Boot loader, Song saved to flash (ADR-0006, ADR-0011) | Flash writes, saved Song (#17-#19) done and working on the board. Boot loader (#20) done in simulation (`make boot-test`): the FPGA image holds only the boot loader, which runs firmware from flash or serial (`modplayer.py firmware [--save]`). Works on the board, 2026-10-25: firmware sent over serial, saved, and run from flash |
 | 6 | microSD | Not started |
-| 7 | HDMI audio and status screen | 640x480p60, 48 kHz audio through an exact integer Resampler (ADR-0010), working on the owner's display. Text console (#21, ADR-0012): 53 x 20 cells of Spleen 12x24, 16 colours, written by the CPU; checked frame by frame in simulation (`make console-test`). Status screen (#22): Song name, Position/Pattern/Row, speed and BPM, following the Song within two frames, checked against a reference Replayer. Voice scopes (#23, ADR-0013): drawn by hardware from Paula's per-Voice output, triggered on rising zero crossings. Next: a spectrum analyser of the mix in rows 12-19 (#24) |
+| 7 | HDMI audio and status screen | 640x480p60, 48 kHz audio through an exact integer Resampler (ADR-0010), working on the owner's display. Text console (#21, ADR-0012): 53 x 20 cells of Spleen 12x24, 16 colours, written by the CPU; checked frame by frame in simulation (`make console-test`). Status screen (#22): Song name, Position/Pattern/Row, speed and BPM, following the Song within two frames, checked against a reference Replayer. Voice scopes (#23, ADR-0013): drawn by hardware from Paula's per-Voice output, triggered on rising zero crossings, with fading persistence. Spectrum analyser (#24, ADR-0014): a hardware FFT of the Resampler's output, 48 bars, matched to a C model (`make spectrum-test`) |
 
 `docs/engineering-notes.md` tells the story of how it was built (published at https://claude.ai/artifact/1u8FxjXG6NGccab94wUaZw). `docs/board.md` is the build/program/use guide with troubleshooting.
 
@@ -46,6 +46,7 @@ Verilator 5.x was used. Useful narrower targets:
 |---|---|
 | `make test` | All of the below plus unit tests, render and oracle tests |
 | `make hw-test` | Verilog Paula vs the C model (31 runs incl. fuzz and real-time) |
+| `make spectrum-test` | The spectrum analyser's Verilog against its C model, bar for bar and pixel for pixel |
 | `make soc-test` | Soft CPU + firmware + SDRAM model, memory test, serial loading |
 | `make boot-test` | The SoC as the FPGA image has it: boot loader runs firmware from the flash model or serial |
 | `make fullchip-test` | Whole chip vs PC reference, every test Song |

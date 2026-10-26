@@ -120,6 +120,20 @@ class StatusScreen(unittest.TestCase):
         self.assertGreater(pixels, 1000, out)
         self.assertGreater(points, 4 * 155 * 20, out)
 
+    def test_the_spectrum_is_drawn_under_the_scopes(self):
+        # issue #24: the analysis itself is checked against its C model by
+        # spectrum_tb; here every frame's bars must be drawn where and as
+        # the display's copy of them says
+        song = status_song()
+        rc, out, ppm = run_console(steps=[("ready", modplayer.encode_load(song))], expect="OK status test",
+                                   frames=20, song=song, max_cycles=200000000)
+        self.assertEqual(rc, 0, out)
+        m = re.search(r"spectrum: (\d+) frames, (\d+) bar pixels", out)
+        self.assertIsNotNone(m, out)
+        frames, pixels = (int(g) for g in m.groups())
+        self.assertGreater(frames, 10, out)
+        self.assertGreater(pixels, 10000, out)
+
 
 PALETTE = [0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,
            0x555555, 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF]

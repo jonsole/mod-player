@@ -181,6 +181,26 @@ static uint32_t scope_pixel(int x, int y)
     return dy == 0 ? 0x555555 : 0;
 }
 
+// the spectrum analyser's bars as the display copied them (hw/rtl/spectrum.v)
+static uint8_t spectrum_h[48], spectrum_p[48];
+static bool spectrum_enable;
+static uint64_t spectrum_enable_changed;
+static int spectrum_frames;
+static uint64_t spectrum_pixels;
+
+static uint32_t spectrum_pixel(int x, int y)
+{
+    if (x < 8 || x >= 632 || y < 288 || y >= 480) return 0;
+    int bx = x - 8, bar = bx / 13, sub = bx % 13, pos = 479 - y;
+    if (sub >= 12) return 0;
+    if (spectrum_p[bar] && (pos == spectrum_p[bar] || pos == spectrum_p[bar] + 1)) return 0xE0E0E0;
+    if (pos < spectrum_h[bar]) {
+        int red = pos < 96 ? pos * 5 / 2 : 255, green = pos < 96 ? 255 : 255 - (pos - 96) * 5 / 2;
+        return (uint32_t)(red << 16 | green << 8 | 0x20);
+    }
+    return 0;
+}
+
 struct Change { uint64_t clk; uint16_t value; };
 static std::vector<Change> history[53 * 20];          // per cell, oldest first; starts at 0
 static uint16_t text_ram[4096];
@@ -199,6 +219,14 @@ static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
     // the scopes, if they were on (or off) for the whole frame
     bool scope_steady = scope_enable_changed + 3 < start;
     bool scopes_shown = scope_steady && scope_enable;
+    bool spectrum_steady = spectrum_enable_changed + 3 < start;
+    bool spectrum_shown = spectrum_steady && spectrum_enable;
+    if (spectrum_shown) {
+        spectrum_frames++;
+        for (int y = 288; y < 480; y++)
+            for (int x = 8; x < 632; x++)
+                if (spectrum_pixel(x, y)) spectrum_pixels++;
+    }
     if (scopes_shown) {
         scope_frames++;
         for (int y = 96; y < 288; y++)
@@ -220,8 +248,9 @@ static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
         int row = cell / COLS, col = cell % COLS;
         for (int r = 0; r < CH; r++) {
             const uint32_t *got = &rgb[(row * CH + r) * 640 + LEFT + col * CW];
-            bool in_band = row >= 4 && row < 12;
+            bool in_band = row >= 4 && row < 12, in_spectrum = row >= 12;
             if (in_band && !scope_steady) continue;          // the scopes came or went mid-frame
+            if (in_spectrum && !spectrum_steady) continue;   // the spectrum likewise
             bool ok = false;
             for (uint16_t v : held) {
                 uint32_t want[12];
@@ -229,6 +258,11 @@ static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
                 if (in_band && scopes_shown)
                     for (int i = 0; i < CW; i++) {
                         uint32_t s = scope_pixel(LEFT + col * CW + i, row * CH + r);
+                        if (s) want[i] = s;
+                    }
+                if (in_spectrum && spectrum_shown)
+                    for (int i = 0; i < CW; i++) {
+                        uint32_t s = spectrum_pixel(LEFT + col * CW + i, row * CH + r);
                         if (s) want[i] = s;
                     }
                 if (!memcmp(got, want, sizeof want)) { ok = true; break; }
@@ -398,6 +432,11 @@ int main(int argc, char **argv)
         } else {
             dut->clk_pixel = 1;
             dut->eval();
+            if (dut->dbg_spectrum_copy)          // the spectrum display took its copy at this edge
+                for (int b = 0; b < 48; b++) {
+                    spectrum_h[b] = (uint8_t)(dut->dbg_spectrum_bars[b / 4] >> (8 * (b % 4)));
+                    spectrum_p[b] = (uint8_t)(dut->dbg_spectrum_peaks[b / 4] >> (8 * (b % 4)));
+                }
             if (dut->dbg_text_we) {           // the console's text RAM takes a write at this edge
                 uint16_t &v = text_ram[dut->dbg_text_cell];
                 if (dut->dbg_text_be & 1) v = (uint16_t)((v & 0xFF00) | (dut->dbg_text_data & 0x00FF));
@@ -409,6 +448,10 @@ int main(int argc, char **argv)
             if ((bool)(dut->dbg_control & 1) != scope_enable) {
                 scope_enable = dut->dbg_control & 1;
                 scope_enable_changed = clk_no;
+            }
+            if ((bool)(dut->dbg_control & 2) != spectrum_enable) {
+                spectrum_enable = dut->dbg_control & 2;
+                spectrum_enable_changed = clk_no;
             }
             scope_front = dut->dbg_scope_front;
             sink(dut->tmds0, dut->tmds1, dut->tmds2);
@@ -452,6 +495,7 @@ int main(int argc, char **argv)
                ref.rows.size(), (unsigned long long)ref.audio_frames);
         printf("scopes: %d frames, %llu trace pixels, %llu points checked\n", scope_frames,
                (unsigned long long)scope_trace_pixels, (unsigned long long)scope_points);
+        printf("spectrum: %d frames, %llu bar pixels\n", spectrum_frames, (unsigned long long)spectrum_pixels);
     }
     printf("console: %s, %d frames match the model (%d cell-frames caught mid-change), %llu clocks\n",
            failures ? "FAILED" : "ok", frames_checked, cells_seen_changing, (unsigned long long)sys_cycles);
