@@ -10,8 +10,8 @@
  *   row 1   the Song's name
  *   row 2   Pos 003/029  Pat 007  Row 12  Spd 06  BPM 125
  *   row 3   a rule
- *   4..11   the four Voice scopes, drawn by the hardware over these rows
- *           (hw/rtl/scopes.v); the text here is just their numbers
+ *   4..11   the four Voice scopes in a 2 x 2 grid, drawn by the hardware over
+ *           these rows (hw/rtl/scopes.v); the text here is just their numbers
  *   12..19  the spectrum analyser of the mix, drawn by the hardware
  *           (hw/rtl/spectrum.v) */
 #define TITLE   ATTR(WHITE, BLUE)
@@ -83,9 +83,8 @@ static void draw_song(const mod_song_t *s)
     text(1, 1, s->name, 20, NAME);
     for (int c = 1; c < CONSOLE_COLS - 1; c++)
         put(3, c, 0xC4, LABEL);                         /* the rule: a line */
-    static const int scope_col[4] = {0, 14, 27, 40};      /* where each scope starts */
-    for (int v = 0; v < 4; v++)
-        put(4, scope_col[v], (uint8_t)('1' + v), LABEL);
+    for (int v = 0; v < 4; v++)                           /* the 2 x 2 grid of scopes */
+        put(4 + 4 * (v >> 1), (v & 1) ? 27 : 0, (uint8_t)('1' + v), LABEL);
 }
 
 /* Copies changed cells to the console, but only in the blanking, and only

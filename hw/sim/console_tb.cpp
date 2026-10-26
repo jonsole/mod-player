@@ -28,8 +28,8 @@
 //                                must have been shown, and the Song's name must be
 //                                on the screen. The Voice scopes (issue #23) too:
 //                                every point captured must be its Voice's output in
-//                                the reference >> 7 times 1.5, taken at a rising zero crossing
-//                                (or after the time-out) and then every 128 colour
+//                                the reference >> 7 times 0.75, taken at a rising zero crossing
+//                                (or after the time-out) and then every 64 colour
 //                                clocks; and every frame's scope pixels must be the
 //                                traces drawn from the slots on screen: the newest
 //                                capture bright, the two before at half and a quarter
@@ -152,7 +152,7 @@ static int status_frames;                   // frames whose status line was chec
 static std::vector<int> rows_shown;         // per reference row: frames it was shown in
 
 // the scopes: the testbench's copy of their buffers, and what it has checked
-static int8_t scope_buf[4][4][256];        // Voice, slot, point
+static int8_t scope_buf[4][4][512];        // Voice, slot, point
 static bool scope_enable;
 static int scope_front;
 static uint64_t scope_enable_changed;      // pixel clock of the last change
@@ -167,10 +167,11 @@ static int scope_last_index[4] = {-1, -1, -1, -1};
 static uint32_t scope_pixel(int x, int y)
 {
     if (x < 2 || x >= 638 || y < 96 || y >= 288) return 0;
-    int gx = x - 2, v = gx < 159 ? 0 : gx < 318 ? 1 : gx < 477 ? 2 : 3, col = gx - 159 * v;
-    if (col >= 155) return 0;                      // the gap between scopes
+    int gx = x - 2, right = gx >= 320, col = right ? gx - 320 : gx, yl = y - 96;
+    int v = (yl >= 96 ? 2 : 0) + right;            // a 2 x 2 grid, 316 x 96 each
+    if (col >= 316) return 0;                      // the gap between scopes
     static const uint32_t colour[4] = {0x55FF55, 0x55FFFF, 0xFFFF55, 0xFF55FF};
-    int dy = 192 - y;
+    int dy = 48 - (yl >= 96 ? yl - 96 : yl);
     for (int age = 0; age < 3; age++) {
         int slot = (scope_front - age) & 3;
         int here = scope_buf[v][slot][col], before = col ? scope_buf[v][slot][col - 1] : here;
@@ -392,18 +393,18 @@ int main(int argc, char **argv)
                     // a rising zero crossing (or the time-out), then every 128 frames
                     for (int v = 0; v < 4; v++) {
                         if (!(dut->dbg_scope_we >> v & 1)) continue;
-                        int index = dut->dbg_scope_index >> (8 * v) & 0xFF;
+                        int index = (int)(dut->dbg_scope_index >> (9 * v) & 0x1FF);
                         int8_t point = (int8_t)(dut->dbg_scope_points >> (8 * v) & 0xFF);
                         scope_buf[v][dut->dbg_scope_slot][index] = point;
                         scope_points++;
-                        int want = (ref.voices[v] >> 7) + ((ref.voices[v] >> 7) >> 1);   // >> 7, times 1.5
+                        int want = (ref.voices[v] >> 7) - ((ref.voices[v] >> 7) >> 2);   // >> 7, times 0.75
                         if (point != want && failures++ < 20)
                             printf("FAIL: scope %d point %d is %d, the reference Voice is %d (so %d)\n",
                                    v + 1, index, point, ref.voices[v], want);
                         bool crossing = ref.prev_voices[v] < 0 && ref.voices[v] >= 0;
-                        if (index == 0 ? !(crossing || ref.audio_frames - scope_wait_from[v] > 38000)
+                        if (index == 0 ? !(crossing || ref.audio_frames - scope_wait_from[v] > 36000)
                                        : (index != scope_last_index[v] + 1 ||
-                                          ref.audio_frames - scope_last_frame[v] != 128))
+                                          ref.audio_frames - scope_last_frame[v] != 64))
                             if (failures++ < 20)
                                 printf("FAIL: scope %d point %d taken at the wrong time (frame %llu; last point %d "
                                        "at %llu)\n", v + 1, index, (unsigned long long)ref.audio_frames,

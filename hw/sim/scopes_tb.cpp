@@ -50,7 +50,7 @@ int main(int argc, char **argv)
                     v |= (uint64_t)(uint16_t)s << (16 * k);
                 }
                 dut->voices = v;
-                if (in_capture == 4 * 155 - 1) {         // would this frame finish the capture?
+                if (in_capture == 4 * 316 - 1) {         // would this frame finish the capture?
                     dut->clk = 0; dut->eval();
                     if (dut->dbg_we) {
                         uint64_t pixels_left = (480ULL * 800 + 420000 - (y * 800ULL + x)) % 420000;

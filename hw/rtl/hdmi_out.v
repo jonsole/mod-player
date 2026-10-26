@@ -48,7 +48,7 @@ module hdmi_out #(
     // the scopes' capture (system clock) and the half shown (pixel clock), for testbenches
     output wire [3:0]        dbg_scope_we,
     output wire [1:0]        dbg_scope_slot,
-    output wire [31:0]       dbg_scope_index,   // {voice 3, 2, 1, 0}
+    output wire [35:0]       dbg_scope_index,   // {voice 3, 2, 1, 0}, 9 bits each
     output wire [31:0]       dbg_scope_points,
     output wire              dbg_scope_start,
     output wire [1:0]        dbg_scope_front,
@@ -95,8 +95,8 @@ module hdmi_out #(
         .clk_pixel(clk_pixel), .rst_pixel(rst_pixel), .pixel_x(px), .pixel_y(py),
         .on(scope_on), .rgb(scope_rgb),
         .dbg_we(dbg_scope_we), .dbg_slot(dbg_scope_slot),
-        .dbg_index_0(dbg_scope_index[7:0]), .dbg_index_1(dbg_scope_index[15:8]),
-        .dbg_index_2(dbg_scope_index[23:16]), .dbg_index_3(dbg_scope_index[31:24]),
+        .dbg_index_0(dbg_scope_index[8:0]), .dbg_index_1(dbg_scope_index[17:9]),
+        .dbg_index_2(dbg_scope_index[26:18]), .dbg_index_3(dbg_scope_index[35:27]),
         .dbg_points(dbg_scope_points), .dbg_start(dbg_scope_start), .dbg_front(dbg_scope_front)
     );
 

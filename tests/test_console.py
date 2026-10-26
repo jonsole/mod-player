@@ -118,7 +118,7 @@ class StatusScreen(unittest.TestCase):
         frames, pixels, points = (int(g) for g in m.groups())
         self.assertGreater(frames, 30, out)
         self.assertGreater(pixels, 1000, out)
-        self.assertGreater(points, 4 * 155 * 20, out)
+        self.assertGreater(points, 4 * 316 * 20, out)
 
     def test_the_spectrum_is_drawn_under_the_scopes(self):
         # issue #24: the analysis itself is checked against its C model by

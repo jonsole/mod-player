@@ -42,7 +42,7 @@ module console_wrap #(
     output wire [63:0] audio_voices,
     output wire [3:0]  dbg_scope_we,
     output wire [1:0]  dbg_scope_slot,
-    output wire [31:0] dbg_scope_index,
+    output wire [35:0] dbg_scope_index,
     output wire [31:0] dbg_scope_points,
     output wire        dbg_scope_start,
     output wire [1:0]  dbg_scope_front,
