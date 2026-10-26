@@ -11,6 +11,37 @@ static int loaded, playing, paused;
 static uint8_t *song_mem;
 static uint32_t silence_addr;          /* Paula address of the silence buffer */
 static replayer_t rp;
+static player_position_t heard;        /* see player_position() */
+static int heard_valid;
+static uint32_t load_count;
+
+/* The Replayer's state now is the tick Paula plays next (or now, at a
+ * boundary): note it before running the one after. */
+static void note_heard(void)
+{
+    heard.pos = rp.play_pos;
+    heard.pattern = song.order[rp.play_pos];
+    heard.row = rp.play_row;
+    heard.speed = rp.speed;
+    heard.bpm = rp.bpm;
+    heard_valid = 1;
+}
+
+int player_position(player_position_t *p)
+{
+    *p = heard;
+    return heard_valid;
+}
+
+uint32_t player_load_count(void)
+{
+    return load_count;
+}
+
+int player_paused(void)
+{
+    return paused;
+}
 
 static void paula_write(void *ctx, uint32_t reg, uint32_t value)
 {
@@ -26,6 +57,8 @@ void player_init(void)
 const char *player_load(uint8_t *mem, uint32_t size)
 {
     loaded = 0;
+    heard_valid = 0;
+    load_count++;
     mod_error_t err = mod_load(&song, mem, size);
     if (err != MOD_OK)
         return mod_error_text(err);
@@ -61,6 +94,7 @@ void player_play(void)
     paula_port_t port = {paula_write, 0};
     replayer_start(&rp, &song, song_mem, 0, silence_addr, port);
     PAULA(PAULA_TICK_LEN) = replayer_tick(&rp);
+    note_heard();                                  /* that tick plays at once */
     PAULA(PAULA_CONTROL) = PAULA_CONTROL_RUN;      /* first boundary at once */
     playing = 1;
     paused = 0;
@@ -144,6 +178,7 @@ void player_poll(void)
         LEDS = 0x01;
         return;
     }
+    note_heard();                       /* the tick that has just started */
     PAULA(PAULA_TICK_LEN) = replayer_tick(&rp);
     show_levels();
 }

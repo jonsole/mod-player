@@ -304,12 +304,13 @@ HDMI_CHAIN_SECONDS ?= 2
 # every frame decoded and checked against the console model
 $(BUILD)/console_tb: $(SOC_RTL) $(HDMI_OUT_RTL) hw/rtl/console_font.hex hw/rtl/resampler_coefs.hex \
 		hw/sim/console_wrap.v hw/sim/console_tb.cpp hw/sim/hdmi_sink.h hw/sim/sdram_model.h \
-		$(BUILD)/fw/firmware0.hex | $(BUILD)
+		$(SIM_C) $(wildcard firmware/replayer/*.h host/*.h) $(BUILD)/fw/firmware0.hex | $(BUILD)
 	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module console_wrap \
 		$(foreach n,0 1 2 3,-GFW$(n)='"$(CURDIR)/$(BUILD)/fw/firmware$(n).hex"') \
 		-GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' -GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' \
 		hw/sim/console_wrap.v $(SOC_RTL) $(HDMI_OUT_RTL) $(CURDIR)/hw/sim/console_tb.cpp \
-		-CFLAGS "-O2 -I$(CURDIR)/hw/sim" \
+		$(addprefix $(CURDIR)/,$(SIM_C)) \
+		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
 		-Mdir $(BUILD)/obj_console -o console_tb >$(BUILD)/console_tb.log 2>&1 || (cat $(BUILD)/console_tb.log; false)
 	cp $(BUILD)/obj_console/console_tb $@
 

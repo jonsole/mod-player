@@ -14,6 +14,10 @@
 //     --flash-fill B    start with every byte of the SPI flash model set to B
 //                       (default 0xff, erased)
 //     --flash-image F   then put F's bytes at the start of the flash model
+//     --no-console      the external bus answers at once and reads 0, as
+//                       the plain build's; otherwise it acts like the HDMI
+//                       build's text console (ADR-0012): present, blanking
+//                       at 60 Hz, each write taking 10 clocks to accept
 //     --compare FILE S  when the firmware starts a Song (it writes Paula's
 //                       options), compare Paula's audio with the PC reference
 //                       (Replayer + Paula C model) for FILE, for S seconds;
@@ -104,6 +108,9 @@ int main(int argc, char **argv)
     std::vector<Step> steps;
     std::vector<uint8_t> preload;
     int switches = 0, flash_fill = 0xFF;
+    bool console = true;
+    int console_busy = 0;
+    long long console_writes = 0;
     std::vector<uint8_t> flash_image;
     std::vector<uint8_t> compare_song;
     long long compare_frames = 0, compared = 0;
@@ -118,6 +125,7 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--preload") && i + 1 < argc) preload = read_file(argv[++i]);
         else if (!strcmp(argv[i], "--switches") && i + 1 < argc) switches = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--no-console")) console = false;
         else if (!strcmp(argv[i], "--flash-fill") && i + 1 < argc) flash_fill = (int)strtol(argv[++i], nullptr, 0);
         else if (!strcmp(argv[i], "--flash-image") && i + 1 < argc) flash_image = read_file(argv[++i]);
         else if (!strcmp(argv[i], "--compare") && i + 2 < argc) {
@@ -149,7 +157,7 @@ int main(int argc, char **argv)
     }
     dut->rst = 1;
     dut->uart_rx = 1;
-    dut->ext_ready = 1;                // no text console: the external bus answers at once
+    dut->ext_ready = 1;
     dut->ext_rdata = 0;
     dut->switches = switches;
     std::fill(flash.mem.begin(), flash.mem.end(), (uint8_t)flash_fill);
@@ -196,6 +204,18 @@ int main(int argc, char **argv)
         sdram.step(dut->sd_cke, dut->sd_cs_n, dut->sd_ras_n, dut->sd_cas_n, dut->sd_we_n,
                    dut->sd_ba, dut->sd_a, dut->sd_dqm, dut->sd_dq_o, dut->sd_dq_oe);
         dut->sd_dq_i = sdram.dq_garbage();
+        if (console) {
+            // 640x480p60 at 25.2 MHz is 420000 pixel clocks a frame, 125 : 63
+            // to ours; the last 45 of its 525 lines are the blanking
+            long long t = (cycle * 63) % (420000LL * 125);
+            bool blanking = t >= 480LL * 800 * 125;
+            uint32_t frames = (uint32_t)((cycle * 63) / (420000LL * 125));
+            if (console_busy > 0) console_busy--;
+            bool write = dut->ext_valid && dut->ext_wstrb != 0;
+            dut->ext_ready = dut->ext_valid && !(write && console_busy > 0);
+            dut->ext_rdata = 0x80000000u | (blanking ? 0x40000000u : 0) | (frames & 0xFFFFFF);
+            if (write && dut->ext_ready) { console_busy = 10; console_writes++; }
+        }
         dut->clk = 1;
         dut->eval();
         dut->flash_miso = flash.step(dut->flash_cs_n, dut->flash_sck, dut->flash_mosi);
@@ -224,8 +244,9 @@ int main(int argc, char **argv)
             }
             if (++compared == compare_frames) {
                 sdram.finish();
-                printf("%s: %lld frames match the PC reference (%.1f s of audio), %lld cycles\n",
-                       sdram.failures ? "FAIL" : "ok", compared, compared / (double)PAULA_CCK_HZ, cycle);
+                printf("%s: %lld frames match the PC reference (%.1f s of audio), %lld cycles, "
+                       "%lld console writes\n", sdram.failures ? "FAIL" : "ok", compared,
+                       compared / (double)PAULA_CCK_HZ, cycle, console_writes);
                 return sdram.failures ? 1 : 0;
             }
         }

@@ -17,6 +17,16 @@
 //     --frames N                 then check N more frames (default 2)
 //     --ppm FILE                 write the last frame there (binary PPM)
 //     --max N                    give up after N system clocks (default 100 million)
+//     --song FILE                the status screen (issue #22): when the firmware
+//                                starts a Song (it writes Paula's options), run the
+//                                PC reference Replayer on FILE alongside, stepped by
+//                                the chip's audio frames (which must match it), and
+//                                check every frame's "Pos ... BPM" line against the
+//                                rows the reference played in the frame and the two
+//                                before it (the screen follows within two frames);
+//                                at the end, every row that lasted 4 frames or more
+//                                must have been shown, and the Song and Sample names
+//                                must be on the screen
 //
 // Clocks run at their exact ratio (50 MHz : 25.2 MHz = 125 : 63).
 #include <cstdio>
@@ -29,6 +39,9 @@
 #include "verilated.h"
 #include "sdram_model.h"
 #include "hdmi_sink.h"
+#include "mod.h"
+#include "paula_model.h"
+#include "replayer.h"
 
 static const int BIT = 50;                         // 50 MHz / 1 Mbaud
 
@@ -73,6 +86,55 @@ static void render_row(uint16_t v, int r, uint32_t out[12])
     uint32_t fg = PALETTE[v >> 8 & 15], bg = PALETTE[v >> 12 & 15];
     for (int i = 0; i < CW; i++) out[i] = (bits >> (11 - i) & 1) ? fg : bg;
 }
+
+// ---- the status screen check (--song) -----------------------------------------------
+struct RowState { int pos, pattern, row, speed, bpm; uint64_t from; };
+
+struct Reference {
+    std::vector<uint8_t> mem;
+    mod_song_t song;
+    paula_model_t paula;
+    replayer_t rp;
+    std::deque<paula_frame_t> frames;
+    std::vector<RowState> rows;            // what was heard, from when
+    bool started = false;
+    uint64_t audio_frames = 0;
+
+    void start(const std::vector<uint8_t> &file, uint32_t options)
+    {
+        uint32_t silence = ((uint32_t)file.size() + 3) & ~3u;
+        mem.assign(silence + 131072 + 4, 0);
+        std::copy(file.begin(), file.end(), mem.begin());
+        if (mod_load(&song, mem.data(), (uint32_t)file.size()) != MOD_OK) { printf("reference: not a MOD file\n"); exit(2); }
+        paula_model_reset(&paula, mem.data(), (uint32_t)mem.size());
+        paula_model_write(&paula, PAULA_OPTIONS, options);
+        replayer_start(&rp, &song, mem.data(), 0, silence, paula_model_port(&paula));
+        frames.clear();
+        rows.clear();
+        started = true;
+    }
+    // The next audio frame; notes the row being heard when a tick starts.
+    paula_frame_t next(uint64_t now)
+    {
+        while (frames.empty()) {
+            uint32_t cck = replayer_tick(&rp);
+            RowState s = {rp.play_pos, song.order[rp.play_pos], rp.play_row, rp.speed, rp.bpm, now};
+            if (rows.empty() || s.pos != rows.back().pos || s.row != rows.back().row ||
+                s.speed != rows.back().speed || s.bpm != rows.back().bpm)
+                rows.push_back(s);
+            for (uint32_t i = 0; i < cck; i++)
+                frames.push_back(paula_model_step(&paula));
+        }
+        paula_frame_t f = frames.front();
+        frames.pop_front();
+        audio_frames++;
+        return f;
+    }
+};
+static Reference ref;
+static std::vector<uint8_t> status_song;
+static int status_frames;                   // frames whose status line was checked
+static std::vector<int> rows_shown;         // per reference row: frames it was shown in
 
 struct Change { uint64_t clk; uint16_t value; };
 static std::vector<Change> history[53 * 20];          // per cell, oldest first; starts at 0
@@ -119,6 +181,35 @@ static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
     }
     frames_checked++;
     last_picture = rgb;
+
+    // the status line, as the text RAM holds it at the end of the frame
+    if (!ref.started || ref.rows.empty()) return;
+    char line[54];
+    for (int i = 0; i < 53; i++) line[i] = (char)(text_ram[2 * 53 + i] & 0xFF);
+    line[53] = 0;
+    int pos, len, pattern, row, speed, bpm;
+    if (sscanf(line, " Pos %d/%d  Pat %d  Row %d  Spd %d  BPM %d", &pos, &len, &pattern, &row, &speed, &bpm) != 6)
+        return;                                  // not drawn yet
+    if (len != ref.song.length) FAIL("frame %d: status says %d Positions, the Song has %d", frames_checked, len, ref.song.length);
+    // the reference rows heard from two frames before this one started, to its end
+    uint64_t from = end > 3 * 420000ULL ? end - 3 * 420000ULL : 0;
+    bool ok = false;
+    for (size_t i = 0; i < ref.rows.size(); i++) {
+        const RowState &s = ref.rows[i];
+        uint64_t until = i + 1 < ref.rows.size() ? ref.rows[i + 1].from : end;
+        if (until < from || s.from > end) continue;
+        if (s.pos == pos && s.pattern == pattern && s.row == row && s.speed == speed && s.bpm == bpm) {
+            ok = true;
+            if (rows_shown.size() < ref.rows.size()) rows_shown.resize(ref.rows.size());
+            rows_shown[i]++;
+        }
+    }
+    if (!ok) {
+        const RowState &s = ref.rows.back();
+        FAIL("frame %d shows Pos %d Pat %d Row %d Spd %d BPM %d; the reference is at Pos %d Pat %d Row %d Spd %d BPM %d",
+             frames_checked, pos, pattern, row, speed, bpm, s.pos, s.pattern, s.row, s.speed, s.bpm);
+    }
+    status_frames++;
 }
 
 static void hdmi_on_sample(int32_t, int32_t) {}
@@ -139,6 +230,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--ppm") && i + 1 < argc) ppm = argv[++i];
         else if (!strcmp(argv[i], "--font") && i + 1 < argc) font_path = argv[++i];
         else if (!strcmp(argv[i], "--max") && i + 1 < argc) max_sys = strtoull(argv[++i], nullptr, 0);
+        else if (!strcmp(argv[i], "--song") && i + 1 < argc) status_song = read_file(argv[++i]);
         else { printf("unknown option %s\n", argv[i]); return 2; }
     }
     if (!font_path) { printf("needs --font console_font.hex\n"); return 2; }
@@ -192,6 +284,18 @@ int main(int argc, char **argv)
             dut->sd_dq_i = sdram.dq_garbage();
             dut->clk = 1;
             dut->eval();
+            if (!status_song.empty()) {
+                if (dut->dbg_paula_we && dut->dbg_paula_addr == PAULA_OPTIONS)
+                    ref.start(status_song, dut->dbg_paula_wdata);     // the firmware starts the Song
+                if (ref.started && dut->audio_valid) {
+                    paula_frame_t e = ref.next(clk_no);
+                    if ((int16_t)dut->audio_l != e.left || (int16_t)dut->audio_r != e.right)
+                        if (failures++ < 20)
+                            printf("FAIL: audio frame %llu: chip (%d, %d), reference (%d, %d)\n",
+                                   (unsigned long long)ref.audio_frames, (int16_t)dut->audio_l,
+                                   (int16_t)dut->audio_r, e.left, e.right);
+                }
+            }
             if (sdram.failures) { printf("serial: %s\nFAIL: SDRAM rules broken\n", text.c_str()); return 1; }
 
             // serial output
@@ -229,6 +333,36 @@ int main(int argc, char **argv)
         fclose(f);
     }
     printf("serial: %s\n", text.c_str());
+    if (!status_song.empty()) {
+        // every row heard for 4 frames or more must have been shown
+        int missed = 0;
+        for (size_t i = 0; i + 1 < ref.rows.size(); i++) {
+            uint64_t lasted = ref.rows[i + 1].from - ref.rows[i].from;
+            if (lasted >= 4 * 420000ULL && (i >= rows_shown.size() || rows_shown[i] == 0) && missed++ < 5)
+                FAIL("Pos %d Row %d played for %.1f frames but was never shown", ref.rows[i].pos, ref.rows[i].row,
+                     lasted / 420000.0);
+        }
+        // the names
+        auto row_text = [](int r, int c, int n) {
+            std::string s;
+            for (int i = 0; i < n; i++) s += (char)(text_ram[r * 53 + c + i] & 0xFF);
+            while (!s.empty() && (s.back() == ' ' || s.back() == 0)) s.pop_back();
+            return s;
+        };
+        if (ref.started) {
+            if (row_text(1, 1, 20) != ref.song.name)
+                FAIL("Song name shown as \"%s\", not \"%s\"", row_text(1, 1, 20).c_str(), ref.song.name);
+            for (int i = 0; i < MOD_SAMPLES; i++) {
+                std::string shown = row_text(4 + i % 16, (i < 16 ? 1 : 27) + 3, 22), want = ref.song.sample[i].name;
+                while (!want.empty() && want.back() == ' ') want.pop_back();
+                if (shown != want) FAIL("Sample %d shown as \"%s\", not \"%s\"", i + 1, shown.c_str(), want.c_str());
+            }
+        } else {
+            FAIL("the firmware never started the Song");
+        }
+        printf("status: %d frames checked, %zu reference rows, %llu audio frames match\n", status_frames,
+               ref.rows.size(), (unsigned long long)ref.audio_frames);
+    }
     printf("console: %s, %d frames match the model (%d cell-frames caught mid-change), %llu clocks\n",
            failures ? "FAILED" : "ok", frames_checked, cells_seen_changing, (unsigned long long)sys_cycles);
     delete dut;

@@ -23,6 +23,17 @@ void player_stop(void);                /* and silence */
 int player_pause_toggle(void);         /* returns 1 if now paused */
 void player_poll(void);                /* call often */
 int player_playing(void);
+int player_paused(void);
+
+/* Where the Song is, as heard: the Replayer runs a tick ahead of Paula
+ * (ADR-0009), so this is its state from before it ran the next tick. */
+typedef struct {
+    uint8_t pos, pattern, row, speed, bpm;
+} player_position_t;
+/* 0 if no Song has played since it was loaded. */
+int player_position(player_position_t *p);
+/* Changes each time a Song is loaded, so a screen can tell. */
+uint32_t player_load_count(void);
 /* Bring-up check: does Paula's tick timer fire? Returns 1 if so. */
 int player_self_test(void);
 

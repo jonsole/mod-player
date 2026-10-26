@@ -8,8 +8,9 @@
 #include "mod.h"
 #include "player.h"
 #include "serial.h"
+#include "status.h"
+#include "version.h"
 
-#define VERSION "0.1"
 #define TIMEOUT_US 100000u
 #define SONG ((uint8_t *)SDRAM_BASE)
 #define SONG_MAX (SDRAM_SIZE - PLAYER_SILENCE_BYTES)
@@ -351,6 +352,7 @@ int main(void)
         if (serial_avail())
             command(serial_getc_timeout(0));
         player_poll();
+        status_update();
         if (!player_playing())          /* heartbeat on LED 0 while idle */
             LEDS = (cycles() >> 24) & 1;   /* about 3 blinks a second at 50 MHz */
     }

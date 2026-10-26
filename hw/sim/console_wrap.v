@@ -28,10 +28,16 @@ module console_wrap #(
     output wire        dbg_text_we,
     output wire [11:0] dbg_text_cell,
     output wire [15:0] dbg_text_data,
-    output wire [1:0]  dbg_text_be
+    output wire [1:0]  dbg_text_be,
+    // Paula's audio and register writes, for the reference Replayer
+    output wire        audio_valid,
+    output wire signed [15:0] audio_l,
+    output wire signed [15:0] audio_r,
+    output wire        dbg_paula_we,
+    output wire [6:0]  dbg_paula_addr,
+    output wire [31:0] dbg_paula_wdata
 );
-    wire        audio_valid, ext_valid, ext_ready;
-    wire signed [15:0] audio_l, audio_r;
+    wire        ext_valid, ext_ready;
     wire [14:2] ext_addr;
     wire [31:0] ext_wdata, ext_rdata;
     wire [3:0]  ext_wstrb;
@@ -45,7 +51,7 @@ module console_wrap #(
         .flash_cs_n(), .flash_sck(), .flash_mosi(), .flash_miso(1'b1),     // an erased flash
         .ext_valid(ext_valid), .ext_addr(ext_addr), .ext_wdata(ext_wdata), .ext_wstrb(ext_wstrb),
         .ext_ready(ext_ready), .ext_rdata(ext_rdata),
-        .dbg_paula_we(), .dbg_paula_addr(), .dbg_paula_wdata()
+        .dbg_paula_we(dbg_paula_we), .dbg_paula_addr(dbg_paula_addr), .dbg_paula_wdata(dbg_paula_wdata)
     );
 
     hdmi_out #(.COEFS(COEFS), .FONT(FONT)) hdmi (
