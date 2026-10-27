@@ -18,6 +18,9 @@ Every command is one byte, sometimes followed by binary arguments (little-endian
 | Flash CRC | `C`, address (u32), length (u32) | `OK crc <8 hex digits>`: CRC-32 of that range of flash |
 | SD card | `D`: start the microSD card (ADR-0015); stops the Song | `OK sd sdhc` or `OK sd sdsc`, or `ERR no SD card`, `ERR SD card doesn't start up`, `ERR SD card not supported` |
 | SD CRC | `E`, first block (u32), count (u32): the CRC-32 of those 512-byte blocks; the card must be started with `D` | `OK crc <8 hex digits>`, or `ERR SD read failed` (past the end of the card, or it didn't answer), `ERR SD card not started` |
+| Card files | `N`: the files in the card's FAT32 root directory (ADR-0017); stops the Song | one `file <size> <name>` line per file (its long name if it has one), then `OK <n> files`; or `ERR` with the card's error, `card not FAT32` |
+| Card CRC | `K`, the name's length (one byte), the name: a file's size and CRC-32. Names match long or 8.3 names, ignoring case; stops the Song | `OK crc <8 hex digits> size <n>`, or `ERR file not found`, `ERR damaged FAT chain`, `ERR file too large`, `ERR card not FAT32`, or the card's error |
+| Card play | `R`, the name's length (one byte), the name: load that Song from the card and play it | as `L`: `OK <Song name>`, or an error as for `K`, or the Song's own error |
 | Boot loader | `B`: stop the Song and return to the boot loader | `OK boot loader <version>`, from the boot loader |
 | Text | `T`, row, column, attribute, length (one byte each), then that many characters: put them on the HDMI text console (ADR-0012: 53 x 20, code page 437; attribute = background colour << 4 \| foreground). Rows 4-11 are under the Voice scopes and rows 12-19 under the spectrum analyser while a Song's status screen is up | `OK`, or `ERR no text console (not the HDMI build)` |
 
@@ -33,6 +36,6 @@ The boot loader (ADR-0011) speaks the same framing. At power-on it prints `boot 
 
 `modplayer.py firmware firmware.bin` sends `B` then `X` and waits for `ready`; with `--save` it then writes the firmware record to flash with `W` (`docs/flash-layout.md`).
 
-Saving a Song to play at power-on is a flash write of a saved-Song record to its region (`docs/flash-layout.md`). At power-on, after `ready`, the board prints `saved Song: <name>` when it starts playing one.
+Saving a Song to play at power-on is a flash write of a saved-Song record to its region (`docs/flash-layout.md`). At power-on, before `ready`, the board prints `saved Song: <name>` when it starts playing one, or, with none saved, `card Song: <name>` for the card's `default.mod` (ADR-0017). `ready` comes once that is done, so the board listens from then on.
 
 CRC-32 is the zlib/PNG one (polynomial 0xEDB88320, reflected, initial and final XOR 0xFFFFFFFF). If more than 100 ms pass between bytes of a command, the board replies `ERR timeout` and waits for a new command. Wait for each reply before sending the next command: the board's serial input holds only one byte, so bytes sent while it is busy (erasing flash, for example) are lost. The largest Song is 32 MB minus 128 KB (the end of SDRAM is reserved for Paula's silence buffer).

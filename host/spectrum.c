@@ -78,7 +78,7 @@ void spectrum_frame(spectrum_t *s)
                 level = l;
         }
         s->level[bar] = (uint16_t)level;
-        unsigned h = level <= SPECTRUM_FLOOR ? 0 : level - SPECTRUM_FLOOR;
+        unsigned h = level <= SPECTRUM_FLOOR ? 0 : (level - SPECTRUM_FLOOR) * SPECTRUM_SCALE >> 3;
         if (h > SPECTRUM_HEIGHT)
             h = SPECTRUM_HEIGHT;
         unsigned fallen = s->bar[bar] > SPECTRUM_FALL ? s->bar[bar] - SPECTRUM_FALL : 0;

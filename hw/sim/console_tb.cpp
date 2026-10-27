@@ -178,7 +178,9 @@ static int status_frames;                   // frames whose status line was chec
 static std::vector<int> rows_shown;         // per reference row: frames it was shown in
 
 // the scopes: the testbench's copy of their buffers, and what it has checked
+static const int SCOPE_GENERATIONS = 1;     // captures shown, as hw/rtl/scopes.v's GENERATIONS
 static int8_t scope_buf[4][4][512];        // Voice, slot, point
+static int scope_first[4][4];              // Voice, slot: the window's first column (the reference's)
 static bool scope_enable;
 static int scope_front;
 static uint64_t scope_enable_changed;      // pixel clock of the last change
@@ -198,13 +200,16 @@ static uint32_t scope_pixel(int x, int y)
     if (col >= 316) return 0;                      // the gap between scopes
     static const uint32_t colour[4] = {0xF4F4F4, 0xF4F4F4, 0xF4F4F4, 0xF4F4F4};   // all white (ADR-0016)
     int dy = 47 - (yl >= 96 ? yl - 96 : yl);       // +47 at the top row, -48 at the bottom
-    for (int age = 0; age < 3; age++) {
+    for (int age = 0; age < SCOPE_GENERATIONS; age++) {
         int slot = (scope_front - age) & 3;
         // the line through the points: this column spans from its midpoint with the
         // column before to its midpoint with the column after, taking in its own point
         // (in half pixels); the first and last columns use their own point for the missing one
-        int c = scope_buf[v][slot][col];
-        int p = col > 0 ? scope_buf[v][slot][col - 1] : c, n = col < 315 ? scope_buf[v][slot][col + 1] : c;
+        // the window's column col is the ring's column first + col
+        const int8_t *ring = scope_buf[v][slot];
+        int f = scope_first[v][slot];
+        int c = ring[(f + col) % 316];
+        int p = col > 0 ? ring[(f + col - 1) % 316] : c, n = col < 315 ? ring[(f + col + 1) % 316] : c;
         int ml = p + c, mr = c + n, c2 = 2 * c;
         int lo = std::min(std::min(ml, mr), c2), hi = std::max(std::max(ml, mr), c2);
         if (2 * dy >= lo && 2 * dy <= hi)
@@ -473,7 +478,10 @@ int main(int argc, char **argv)
                             sref[v].phase = 1;
                         }
                     } else if (all_done) {
-                        for (int v = 0; v < 4; v++) sref[v].phase = 0;
+                        for (int v = 0; v < 4; v++) {                 // the slot just filled: its windows
+                            scope_first[v][dut->dbg_scope_slot] = sref[v].first;
+                            sref[v].phase = 0;
+                        }
                     } else if (frame) {
                         for (int v = 0; v < 4; v++) scope_frame(sref[v], ref.voices[v], ref.prev_voices[v]);
                     }

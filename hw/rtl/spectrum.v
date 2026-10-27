@@ -56,7 +56,8 @@ module spectrum #(
     output wire [191:0]       dbg_peaks,
     output wire               dbg_copy
 );
-    localparam FLOOR = 9'd16, HEIGHT = 9'd180, FALL = 8'd4, HOLD = 5'd30;
+    localparam FLOOR = 9'd100, HEIGHT = 9'd180, FALL = 8'd4, HOLD = 5'd30;   // 36 dB: see host/spectrum.h
+    localparam SCALE = 4'd15;                                  // eighths of a pixel per level
 
     // ---- the tables (tools/spectrum_tables.py) ----------------------------------------
     reg [15:0] window [0:1023];
@@ -197,8 +198,10 @@ module spectrum #(
     endfunction
 
     wire [8:0] level = lvl4 > acc ? lvl4 : acc;                // the bar's loudest so far
-    wire [8:0] h_raw = level <= FLOOR ? 9'd0 : level - FLOOR;
-    wire [7:0] h_new = h_raw > HEIGHT ? HEIGHT[7:0] : h_raw[7:0];
+    wire [8:0] above = level - FLOOR;
+    wire [12:0] h_mul = above * SCALE;
+    wire [9:0] h_raw = level <= FLOOR ? 10'd0 : h_mul[12:3];
+    wire [7:0] h_new = h_raw > {1'b0, HEIGHT} ? HEIGHT[7:0] : h_raw[7:0];
     wire [7:0] fallen = bar_h[bb4] > FALL ? bar_h[bb4] - FALL : 8'd0;
     wire [7:0] shown = h_new > fallen ? h_new : fallen;
 

@@ -22,6 +22,9 @@ void player_play(void);                /* from the start */
 void player_stop(void);                /* and silence */
 int player_pause_toggle(void);         /* returns 1 if now paused */
 void player_poll(void);                /* call often */
+/* 1 once after a Song stops by itself: its end in play-once mode (SW3), or
+ * an F00 effect; not after player_stop(). */
+int player_take_finished(void);
 int player_playing(void);
 int player_paused(void);
 

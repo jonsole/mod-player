@@ -72,7 +72,7 @@ If firmware in flash is broken and doesn't answer `B`: start `modplayer.py firmw
    python3 tools/modplayer.py --port /dev/ttyUSB1 pause    # or stop, play
    ```
 
-**DIP switches** (read when a Song starts): SW1 stereo blend, SW2 Amiga 500 filter, SW3 play once (stop at the end instead of looping), SW4 reserved (developer mode).
+**DIP switches** (read when a Song starts): SW1 stereo blend, SW2 Amiga 500 filter, SW3 play once (stop at the end instead of looping; a Song from the microSD card is followed by the next Song on the card), SW4 reserved (developer mode).
 
 **LEDs:** LED 0 blinking: idle and alive. While playing, two per voice as a rough level meter (voice 1 = LEDs 0–1). LEDs alternating 10101010 / 01010101: the SDRAM test failed. No LEDs at all: the FPGA isn't configured or the clock isn't running.
 
@@ -110,7 +110,15 @@ The firmware must be running (after `build.bat prog`, the boot loader runs the f
 
 ## microSD card
 
-The socket takes a microSD card, used in SPI mode (ADR-0015). So far the firmware can start it and read blocks (`modplayer.py sd-init`, then `modplayer.py sd-crc --lba N --count N`, which prints the CRC-32 of those 512-byte blocks, to compare with the CRC-32 of the same bytes read on the PC). A card that isn't there gives `ERR no SD card`. Loading Songs from a FAT32 card is issue #26.
+The socket takes a microSD card, used in SPI mode (ADR-0015). Format the card FAT32 on a PC (Windows offers FAT32 only up to 32 GB; for bigger cards use a tool such as Rufus) and copy MOD files into its top folder. Then:
+
+```sh
+python3 tools/modplayer.py --port COM7 card-ls                  # the files on the card
+python3 tools/modplayer.py --port COM7 card-play "space debris.mod"
+python3 tools/modplayer.py --port COM7 card-crc GODS.MOD        # size and CRC-32, to compare with the PC's copy
+```
+
+Names match ignoring case, long or 8.3. A file called `default.mod` plays at power-on when no Song is saved in flash (`modplayer.py forget` removes the saved one) and SW4 is off. Lower level: `sd-init` starts the card and `sd-crc --lba N --count N` gives the CRC-32 of raw 512-byte blocks. A card that isn't there gives `ERR no SD card`; one that isn't FAT32, `ERR card not FAT32`.
 
 ## If it doesn't work
 

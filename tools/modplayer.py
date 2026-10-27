@@ -8,6 +8,7 @@
                                      (run new firmware now; --save also keeps it in flash)
     python3 tools/modplayer.py [--port PORT] boot   (back to the boot loader)
     python3 tools/modplayer.py [--port PORT] sd-init | sd-crc [--lba N] [--count N]   (the microSD card)
+    python3 tools/modplayer.py [--port PORT] card-ls | card-play NAME | card-crc NAME  (Songs on the card)
 
 PORT defaults to /dev/ttyUSB1 (the FT2232H's second port on Linux; on
 Windows something like COM4). Needs pyserial (pip install pyserial).
@@ -33,7 +34,25 @@ def encode_play_from_memory(length):
 
 
 SIMPLE = {"version": b"V", "play": b"P", "stop": b"S", "pause": b"U", "info": b"I",
-          "flash-id": b"F", "boot": b"B", "sd-init": b"D"}
+          "flash-id": b"F", "boot": b"B", "sd-init": b"D", "card-ls": b"N"}
+
+
+def encode_name(cmd, name):
+    """A card command with a file name: the command byte, the name's length (one byte), the name."""
+    raw = name.encode("ascii")
+    if not 0 < len(raw) < 256:
+        raise ValueError("a file name is 1 to 255 ASCII characters")
+    return cmd + bytes([len(raw)]) + raw
+
+
+def encode_card_crc(name):
+    """The size and CRC-32 of a file on the card: K, name."""
+    return encode_name(b"K", name)
+
+
+def encode_card_play(name):
+    """Load a Song from the card and play it: R, name."""
+    return encode_name(b"R", name)
 
 
 def encode_sd_crc(lba, count):
@@ -186,9 +205,9 @@ def enter_boot_loader(ser, timeout=20.0):
 
 
 def wait_until_listening(ser, tries=10):
-    """After "ready" the firmware may still be busy (loading a saved Song
-    from flash), and bytes sent then are lost. Sends V until it answers,
-    then drops any late answer. Returns whether it answered."""
+    """Older firmware said "ready" before loading a saved Song from flash,
+    and bytes sent meanwhile were lost; it now says it after. Sends V until
+    it answers, then drops any late answer. Returns whether it answered."""
     for _ in range(tries):
         ser.write(SIMPLE["version"])
         try:
@@ -231,7 +250,8 @@ def run_firmware(ser, image, save=False):
 def main(argv):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--port", default="/dev/ttyUSB1")
-    p.add_argument("command", choices=["load", "flash-write", "save", "forget", "firmware", "sd-crc"] + sorted(SIMPLE))
+    p.add_argument("command", choices=["load", "flash-write", "save", "forget", "firmware", "sd-crc",
+                                       "card-play", "card-crc"] + sorted(SIMPLE))
     p.add_argument("file", nargs="?")
     p.add_argument("--addr", type=lambda s: int(s, 0), default=0,
                    help="flash-write: flash address (default 0, where the FPGA boots from)")
@@ -256,6 +276,14 @@ def main(argv):
         elif args.command == "sd-crc":
             ser.write(encode_sd_crc(args.lba, args.count))
             lines = read_reply(ser, timeout=args.count * 0.01 + 10)
+        elif args.command in ("card-play", "card-crc"):
+            if not args.file:
+                sys.exit("%s needs the name of a file on the card" % args.command)
+            ser.write((encode_card_play if args.command == "card-play" else encode_card_crc)(args.file))
+            lines = read_reply(ser, timeout=60)                      # a large Song: a few seconds
+        elif args.command == "card-ls":
+            ser.write(SIMPLE["card-ls"])
+            lines = read_reply(ser, timeout=30)
         elif args.command == "firmware":
             if not args.file:
                 sys.exit("firmware needs a firmware .bin file")

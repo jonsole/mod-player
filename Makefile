@@ -148,7 +148,7 @@ $(BUILD)/soc_tb_fast: $(SOC_TB_DEPS) | $(BUILD)
 
 soc-test: $(BUILD)/soc_tb
 	$(BUILD)/soc_tb "ready"
-	python3 -m unittest tests.test_soc tests.test_sd
+	python3 -m unittest tests.test_soc tests.test_sd tests.test_fat
 
 # The SoC as the FPGA image has it: only the boot loader in RAM, started at
 # its power-on entry (issue #20)

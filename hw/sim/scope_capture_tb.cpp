@@ -3,7 +3,8 @@
 // exactly the stall limits and the 64-frame minimum), changes that come
 // too soon (less than 64 frames after the last), Voices that go quiet, and frames arriving as close together as
 // Paula's (4 clocks) or far apart. Every point the hardware writes must be
-// the reference's next, and every capture must finish with all 316 points.
+// the reference's next, every capture must finish, and its window (the
+// trigger in the middle) must start where the reference's does.
 //
 //   scope_capture_tb captures [seed]
 #include <algorithm>
@@ -70,6 +71,9 @@ int main(int argc, char **argv)
                 ref.phase = 1;
             }
         } else if (dut->phase == 3 && ref.phase == 3 && ref.expect.empty()) {
+            if (dut->first_col != ref.first && failures++ < 10)
+                printf("FAIL: capture %d's window starts at column %d; the reference's at %d\n",
+                       captures, dut->first_col, ref.first);
             dut->clear = 1;                                 // finished: back to idle
             started = false;
             captures++;

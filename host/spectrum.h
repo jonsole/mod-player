@@ -14,8 +14,10 @@
  *     / 1024).
  *  3. Each bar's level is the loudest of its bins (spectrum_tables.h), in
  *     eighths of an octave of power: L = 8 * msb(P) + the next 3 bits of P,
- *     P = re^2 + im^2 (0 for P = 0). Its height is L - SPECTRUM_FLOOR,
- *     clamped to 0..SPECTRUM_HEIGHT pixels: one pixel is 0.38 dB.
+ *     P = re^2 + im^2 (0 for P = 0). Its height is (L - SPECTRUM_FLOOR)
+ *     x SPECTRUM_SCALE / 8, clamped to 0..SPECTRUM_HEIGHT pixels: one pixel
+ *     is 0.2 dB, and the bars span 36 dB (the owner found 68 dB lit every
+ *     bar with quiet background energy).
  *  4. The bar shown rises at once and falls SPECTRUM_FALL pixels a frame;
  *     its peak marker holds for SPECTRUM_HOLD frames, then falls a pixel a
  *     frame.
@@ -26,7 +28,8 @@
 #include "spectrum_tables.h"
 
 #define SPECTRUM_HEIGHT 180
-#define SPECTRUM_FLOOR  16
+#define SPECTRUM_FLOOR  100
+#define SPECTRUM_SCALE  15             /* eighths of a pixel per level */
 #define SPECTRUM_FALL   4
 #define SPECTRUM_HOLD   30
 

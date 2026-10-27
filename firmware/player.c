@@ -54,6 +54,8 @@ void player_init(void)
     player_stop();
 }
 
+static int finished;                   /* the Song came to its end by itself */
+
 const char *player_load(uint8_t *mem, uint32_t size)
 {
     loaded = 0;
@@ -98,6 +100,14 @@ void player_play(void)
     PAULA(PAULA_CONTROL) = PAULA_CONTROL_RUN;      /* first boundary at once */
     playing = 1;
     paused = 0;
+    finished = 0;
+}
+
+int player_take_finished(void)
+{
+    int f = finished;
+    finished = 0;
+    return f;
 }
 
 void player_stop(void)
@@ -175,6 +185,7 @@ void player_poll(void)
     if (rp.stopped || (rp.ended && (SWITCHES & SW_PLAY_ONCE))) {
         queue_silence();
         playing = 0;
+        finished = 1;
         LEDS = 0x01;
         return;
     }

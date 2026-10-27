@@ -96,7 +96,10 @@ class SdCard(unittest.TestCase):
         self.assertEqual(rc, 0, out)
 
     def test_reading_before_starting_the_card_is_refused_without_touching_it(self):
-        rc, out = run_card("ERR SD card not started", modplayer.encode_sd_crc(0, 1), card_image())
+        # SW4 (developer mode): the firmware doesn't start the card at power-on
+        # to look for a default Song (issue #26), so it is still unstarted
+        rc, out = run_card("ERR SD card not started", modplayer.encode_sd_crc(0, 1), card_image(),
+                           card_args=["--switches", "8"])
         self.assertEqual(rc, 0, out)                # the model saw no command
 
 

@@ -43,22 +43,27 @@
 // Plain Verilog-2001 for Xilinx ISE (ADR-0004).
 `default_nettype none
 
-// One Voice's capture: waits for the trigger, writes the first point, then
-// finds the Voice's sample changes ("knots") and asks the shared engine
-// (scope_engine) to draw the segment between each pair. Frames come with
-// audio_valid, one per colour clock.
+// One Voice's capture. It records from the moment it starts, the Voice's
+// output a column every 256 frames, into its slot as a ring of 316 points;
+// it finds the Voice's sample changes ("knots") and asks the shared engine
+// (scope_engine) to draw the segment between each pair. Once 158 columns are
+// in, the next rising zero crossing is the trigger (or, after TIMEOUT more
+// frames, the frame then); the capture goes on for 158 columns from the one
+// at or after it, so the trigger is in the middle of the window: columns
+// first_col .. first_col + 315 of the ring, column 158 the trigger's. Frames
+// come with audio_valid, one per colour clock.
 module scope_capture (
     input wire               clk,
     input wire               rst,
     input wire               audio_valid,
     input wire signed [15:0] v,             // the Voice's output this frame
-    input wire               start,         // begin waiting for a trigger
+    input wire               start,         // begin recording
     input wire               clear,         // back to idle
-    output reg [1:0]         phase,         // 0 idle, 1 waiting, 2 capturing, 3 done
+    output reg [1:0]         phase,         // 0 idle, 1 before the trigger, 2 after it, 3 done
     // the first point
     output reg               wen,           // a point to write (valid the clock after)
     output reg [8:0]         widx,
-    output reg [6:0]         wdat,          // signed, -48..48
+    output reg [6:0]         wdat,          // signed, -48..47
     // a segment for the engine: held until the engine takes it
     output reg               req,
     output reg [10:0]        s_gap,         // frames from the last knot to this one
@@ -67,25 +72,30 @@ module scope_capture (
     output reg               s_neg,         // this knot is below it
     output reg [10:0]        s_dq,          // by this much
     input wire               take,          // the engine has copied the segment
-    output wire [8:0]        j_out,         // columns written, for the engine to carry on from
+    output wire [9:0]        j_out,         // columns written (counting on past the ring's end)
+    output reg [9:0]         stop,          // the last column to write; 1023 until the trigger
+    output reg [8:0]         first_col,     // the window's first column in the ring
     input wire               done,          // the engine has drawn the segment
     input wire [10:0]        off_new,
-    input wire [8:0]         j_new,
+    input wire [9:0]         j_new,
     input wire               finished       // and it was the last column
 );
-    localparam [15:0] TIMEOUT = 16'd36000;
+    localparam [16:0] PRE = 17'd40448;      // 158 columns x 256 frames
+    localparam [16:0] TIMEOUT = 17'd36000;
     // A change is a knot when it is at least 64 frames (256 clocks: longer
     // than the engine takes to get to a Voice, four to a turn) after the last
     // one; a Voice that doesn't change takes a knot anyway after 64 frames if
     // its output is 0, 1100 otherwise.
     localparam [10:0] IDLE_ZERO = 11'd63, IDLE_HELD = 11'd1099, MIN_AGE = 11'd63;
 
-    reg  [15:0] prev_v, waited;
+    reg  [15:0] prev_v;
+    reg  [16:0] t;                          // the frame's time: frames since the first point
+    reg         begun;                      // the first point is written
     reg  [10:0] age;                        // frames since the last knot, less one
     reg  [10:0] off;
     reg         pending;                    // a change waiting for MIN_AGE
     reg  signed [10:0] q0;
-    reg  [8:0]  j;                          // columns written
+    reg  [9:0]  j;                          // columns written
     assign j_out = j;
 
     // Q(v) = (3 v) >> 5
@@ -98,6 +108,8 @@ module scope_capture (
     wire signed [11:0] dq = {qv[10], qv} - {q0[10], q0};
     wire [11:0] dq_neg = 12'd0 - dq;
     wire [10:0] dq_abs = dq[11] ? dq_neg[10:0] : dq[10:0];
+    wire [16:0] t_up = t + 17'd255;
+    wire [9:0]  trig_col = t_up[16:8];      // the column at or after this frame: ceil(t / 256)
 
     always @(posedge clk) begin
         wen <= 1'b0;
@@ -105,12 +117,15 @@ module scope_capture (
             phase <= 2'd0;
             req <= 1'b0;
             prev_v <= 16'd0;
-            waited <= 16'd0;
+            t <= 17'd0;
+            begun <= 1'b0;
             age <= 11'd0;
             off <= 11'd0;
             pending <= 1'b0;
             q0 <= 11'sd0;
-            j <= 9'd0;
+            j <= 10'd0;
+            stop <= 10'h3FF;
+            first_col <= 9'd0;
             widx <= 9'd0;
             wdat <= 7'd0;
         end else begin
@@ -121,24 +136,29 @@ module scope_capture (
 
             if (start) begin
                 phase <= 2'd1;
-                waited <= 16'd0;
+                begun <= 1'b0;
+                stop <= 10'h3FF;
             end else if (clear)
                 phase <= 2'd0;
-            else if (audio_valid) begin
-                if (phase == 2'd1) begin
-                    waited <= waited + 1'b1;
-                    if (trigger || waited == TIMEOUT) begin   // the first point, now
-                        phase <= 2'd2;
-                        wen <= 1'b1;
-                        widx <= 9'd0;
-                        wdat <= qv[10:4];
-                        j <= 9'd1;
-                        q0 <= qv;
-                        age <= 11'd0;
-                        off <= 11'd256;
-                        pending <= 1'b0;
+            else if (audio_valid && (phase == 2'd1 || phase == 2'd2)) begin
+                if (!begun) begin                             // the first point, now
+                    begun <= 1'b1;
+                    wen <= 1'b1;
+                    widx <= 9'd0;
+                    wdat <= qv[10:4];
+                    j <= 10'd1;
+                    q0 <= qv;
+                    age <= 11'd0;
+                    off <= 11'd256;
+                    pending <= 1'b0;
+                    t <= 17'd1;
+                end else begin
+                    t <= t + 1'b1;
+                    if (phase == 2'd1 && ((trigger && t >= PRE) || t == PRE + TIMEOUT)) begin
+                        phase <= 2'd2;                        // the trigger: 158 columns more
+                        stop <= trig_col + 10'd157;
+                        first_col <= trig_col[8:0] - 9'd158;
                     end
-                end else if (phase == 2'd2) begin
                     if (knot) begin                           // the next knot: a segment to draw
                         req <= 1'b1;
                         s_gap <= age + 1'b1;
@@ -180,18 +200,18 @@ module scope_engine (
     input wire [43:0]  g_q0,
     input wire [3:0]   g_neg,
     input wire [43:0]  g_dq,
-    input wire [35:0]  g_j,                 // 9 bits each
+    input wire [39:0]  g_j,                 // columns written, 10 bits each (counting on past 315)
+    input wire [39:0]  g_stop,              // the last column to write, 10 bits each
     output reg [3:0]   take,
     output reg [3:0]   done,
     output reg [10:0]  off_out,
-    output reg [8:0]   j_out,
+    output reg [9:0]   j_out,
     output reg         finished,
     output reg         wen,
     output reg [8:0]   widx,
     output reg [6:0]   wdat,
     output reg [1:0]   wsel
 );
-    localparam POINTS = 316;
     localparam E_IDLE = 3'd0, E_DIV = 3'd1, E_SET = 3'd2, E_MUL = 3'd3, E_EMIT = 3'd4, E_END = 3'd5;
     reg  [2:0]  es;
     reg  [4:0]  ecnt;
@@ -204,7 +224,7 @@ module scope_engine (
     reg  signed [23:0] slope;               // 4096 x (dq / gap), truncated
     reg  signed [35:0] acc, mulsh;
     reg  [10:0] mulb;
-    reg  [8:0]  jc;
+    reg  [9:0]  jc, s_stop;
     reg         fin;
     wire [11:0] rem_n = {rem[10:0], qq[22]};
     wire        ge = rem_n >= {1'b0, s_gap};
@@ -232,7 +252,8 @@ module scope_engine (
                     s_neg <= g_neg[pick];
                     qq <= {g_dq[11 * pick +: 11], 12'd0};
                     rem <= 12'd0;
-                    jc <= g_j[9 * pick +: 9];
+                    jc <= g_j[10 * pick +: 10];
+                    s_stop <= g_stop[10 * pick +: 10];
                     fin <= 1'b0;
                     ecnt <= 5'd0;
                     es <= E_DIV;
@@ -266,12 +287,12 @@ module scope_engine (
                 if (c_off < s_gap) begin                       // a column in this segment
                     wen <= 1'b1;
                     wsel <= sel;
-                    widx <= jc;
+                    widx <= jc >= 10'd316 ? jc[8:0] - 9'd316 : jc[8:0];   // round the ring
                     wdat <= qt[10:4];
                     jc <= jc + 1'b1;
                     acc <= acc + addend;
                     c_off <= c_off + 11'd256;
-                    if (jc == POINTS - 1) begin
+                    if (jc == s_stop) begin
                         fin <= 1'b1;
                         es <= E_END;
                     end
@@ -336,9 +357,10 @@ module scopes (
     wire [27:0] c_wdat;
     wire [3:0]  req, take, done, c_neg;
     wire [43:0] c_gap, c_off, c_q0, c_dq;
-    wire [35:0] c_j;
+    wire [39:0] c_j, c_stop;
+    wire [35:0] c_first;                      // each Voice's window: its first column in the ring
     wire [10:0] off_new;
-    wire [8:0]  j_new;
+    wire [9:0]  j_new;
     wire        finished;
     // the engine's columns
     wire        e_wen;
@@ -347,9 +369,16 @@ module scopes (
     wire [1:0]  e_wsel;
     scope_engine engine (
         .clk(clk), .rst(rst), .req(req), .g_gap(c_gap), .g_off(c_off), .g_q0(c_q0), .g_neg(c_neg),
-        .g_dq(c_dq), .g_j(c_j), .take(take), .done(done), .off_out(off_new), .j_out(j_new),
+        .g_dq(c_dq), .g_j(c_j), .g_stop(c_stop), .take(take), .done(done), .off_out(off_new), .j_out(j_new),
         .finished(finished), .wen(e_wen), .widx(e_widx), .wdat(e_wdat), .wsel(e_wsel)
     );
+
+    // win_first: per Voice and slot ({voice, slot}), the window's first
+    // column in the ring. Set as the capture finishes, so like the slot's
+    // points it is read on the pixel clock only while the slot isn't being
+    // written.
+    reg  [8:0] win_first [0:15];
+    integer i;
 
     // what each Voice's memory is written with
     wire [3:0]  wen;
@@ -364,7 +393,8 @@ module scopes (
                 .phase(phases[2 * g +: 2]), .wen(c_wen[g]), .widx(c_widx[9 * g +: 9]), .wdat(c_wdat[7 * g +: 7]),
                 .req(req[g]), .s_gap(c_gap[11 * g +: 11]), .s_off(c_off[11 * g +: 11]),
                 .s_q0(c_q0[11 * g +: 11]), .s_neg(c_neg[g]), .s_dq(c_dq[11 * g +: 11]),
-                .take(take[g]), .j_out(c_j[9 * g +: 9]),
+                .take(take[g]), .j_out(c_j[10 * g +: 10]), .stop(c_stop[10 * g +: 10]),
+                .first_col(c_first[9 * g +: 9]),
                 .done(done[g]), .off_new(off_new), .j_new(j_new), .finished(finished)
             );
             assign wen[g] = c_wen[g] | (e_wen && e_wsel == g);
@@ -386,6 +416,8 @@ module scopes (
             front_g2 <= 2'd0;
             latest <= 2'd0;
             latest_gray <= 2'd0;
+            for (i = 0; i < 16; i = i + 1)
+                win_first[i] <= 9'd0;
         end else begin
             frame_sync <= {frame_sync[1:0], frame_t};
             front_g1 <= front_gray;
@@ -393,6 +425,9 @@ module scopes (
             latest_gray <= latest ^ {1'b0, latest[1]};
             if (all_done)
                 latest <= next_slot;
+            if (all_done)                         // where each Voice's window starts in the slot
+                for (i = 0; i < 4; i = i + 1)
+                    win_first[{i[1:0], next_slot}] <= c_first[9 * i +: 9];
         end
     end
 
@@ -401,7 +436,9 @@ module scopes (
     // reads all four slots of a column at once (words, below). Kept in
     // logic: left to itself XST makes RAMB8s, which ISE 14.7's bitgen
     // mishandles (docs/board.md).
-    reg  [8:0] col_a;
+    // Each slot is read at col_s[slot]: the column drawn, moved by the
+    // window of the scope being drawn (the other Voices' reads aren't used).
+    reg  [8:0] col_s [0:3];
     wire [111:0] words;                       // {voice 3, 2, 1, 0} x {slot 3, 2, 1, 0}, 7 bits each
     generate
         for (g = 0; g < 4; g = g + 1) begin : voice
@@ -410,7 +447,7 @@ module scopes (
                 always @(posedge clk)
                     if (wen[g] && next_slot == s)
                         m[widx[9 * g +: 9]] <= wdat[7 * g +: 7];
-                assign words[28 * g + 7 * s + 6 : 28 * g + 7 * s] = m[col_a];
+                assign words[28 * g + 7 * s + 6 : 28 * g + 7 * s] = m[col_s[s]];
             end
         end
     endgenerate
@@ -441,6 +478,15 @@ module scopes (
         end
     end
 
+    function [8:0] ring;                      // column c of a window starting at f, in the ring of 316
+        input [8:0] c, f;
+        reg [9:0] sum;
+        begin
+            sum = {1'b0, c} + {1'b0, f};
+            ring = sum >= 10'd316 ? sum[8:0] - 9'd316 : sum[8:0];
+        end
+    endfunction
+
     // stage A: which scope, which column, how far above its centre line
     wire [9:0] gx = pixel_x - 10'd2;
     wire       right_n = gx >= 10'd320;
@@ -459,7 +505,8 @@ module scopes (
     always @(posedge clk_pixel) begin
         scope_a <= {bottom_n, right_n};
         scope_rd <= {bottom_n, rn};
-        col_a <= cn[8:0];
+        for (i = 0; i < 4; i = i + 1)
+            col_s[i] <= ring(cn[8:0], win_first[{bottom_n, rn, i[1:0]}]);
         first_a <= col_n == 10'd0;
         last_a <= col_n == 10'd315;
         dy_a <= 9'sd47 - $signed({1'b0, yband});                // +47 at the top row, -48 at the bottom: the points' range
@@ -508,13 +555,17 @@ module scopes (
             on_trace = d2 >= lo && d2 <= hi;
         end
     endfunction
+    // How many captures are shown: the newest only (the owner found three
+    // overlaid traces looked like three waveforms, not persistence); 2 or 3
+    // add the ones before it at three quarters and half brightness.
+    localparam GENERATIONS = 1;
     reg  [1:0] level_c, level_d;              // 3 newest, 2 three quarters, 1 half, 0 none
     reg        centre_c, centre_d;
     always @(posedge clk_pixel) begin
         level_c <= !in_b ? 2'd0 :
                    on_trace(wp, cur_c, wn, front, dy_b) ? 2'd3 :
-                   on_trace(wp, cur_c, wn, front - 2'd1, dy_b) ? 2'd2 :
-                   on_trace(wp, cur_c, wn, front - 2'd2, dy_b) ? 2'd1 : 2'd0;
+                   (GENERATIONS > 1 && on_trace(wp, cur_c, wn, front - 2'd1, dy_b)) ? 2'd2 :
+                   (GENERATIONS > 2 && on_trace(wp, cur_c, wn, front - 2'd2, dy_b)) ? 2'd1 : 2'd0;
         centre_c <= in_b && dy_b == 9'sd0;
         scope_c <= scope_b;
         // stage D
