@@ -11,6 +11,7 @@
 module hdmi_out #(
     parameter COEFS = "resampler_coefs.hex",
     parameter FONT  = "console_font.hex",
+    parameter SEGMENTS = "console_segments.hex",
     parameter SPECTRUM_WINDOW = "spectrum_window.hex",
     parameter SPECTRUM_SINE   = "spectrum_sine.hex",
     parameter SPECTRUM_BARS   = "spectrum_bars.hex"
@@ -54,8 +55,8 @@ module hdmi_out #(
     output wire [1:0]        dbg_scope_front,
     output wire [7:0]        dbg_control,       // the console's control register
     // the spectrum's bars and peaks (system clock) and its display copy (pixel clock)
-    output wire [383:0]      dbg_spectrum_bars,
-    output wire [383:0]      dbg_spectrum_peaks,
+    output wire [191:0]      dbg_spectrum_bars,
+    output wire [191:0]      dbg_spectrum_peaks,
     output wire              dbg_spectrum_copy
 );
     wire               rs_valid;
@@ -81,7 +82,7 @@ module hdmi_out #(
     wire [7:0]  control;
     wire        scope_on;
     assign dbg_control = control;
-    text_console #(.FONT(FONT)) console (
+    text_console #(.FONT(FONT), .SEGMENTS(SEGMENTS)) console (
         .clk(clk), .rst(rst),
         .bus_valid(text_valid), .bus_addr(text_addr), .bus_wdata(text_wdata), .bus_wstrb(text_wstrb),
         .bus_ready(text_ready), .bus_rdata(text_rdata), .control(control),

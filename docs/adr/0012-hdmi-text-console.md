@@ -1,5 +1,7 @@
 # The HDMI picture is a 53 x 20 text console in Spleen 12 x 24
 
+*Its look changed with ADR-0016: printable ASCII is now 16-segment characters, colours are white and dim, and a background shows a character's unlit segments.*
+
 The status screen (issues #21-#23) is text: a console of 53 x 20 character cells of 12 x 24 pixels on the 640 x 480 picture, centred with a 2-pixel black border each side. Each cell holds a character in code page 437 order (so line drawing and block characters are there for scopes and bars) and an attribute byte: foreground and background from the 16 VGA colours. The font is Spleen 12 x 24 (BSD 2-clause, vendored in `hw/rtl/third_party/spleen`); Spleen 12 x 24 lacks code page 437's symbols (card suits, arrows, Greek), which come from Spleen's 8 x 16 code page 437 edition scaled by 1.5. `tools/console_font.py` makes `hw/rtl/console_font.hex`, which is committed.
 
 The owner chose the size and typeface over the first version, the VGA 8 x 16 font at 80 x 30: larger, more modern letters, with 20 rows still enough for the Song information and all 31 Sample names in two columns.

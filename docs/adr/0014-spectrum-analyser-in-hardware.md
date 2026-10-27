@@ -1,5 +1,7 @@
 # The spectrum analyser is a hardware FFT of the Resampler's output, matched to a C model
 
+*Its look changed with ADR-0016: 24 bars of white LEDs, not 48 coloured bars; the analysis is the same.*
+
 The status screen's bottom half (rows 12-19) is a spectrum analyser of the mix: 48 bars, 12 pixels wide and 13 apart from x = 8, standing on the bottom of the screen, coloured green to yellow to red by height, each with a peak marker that holds for half a second and then falls (the owner's choice of look). It is computed by hardware (`hw/rtl/spectrum.v`) and defined, like Paula and the Resampler, by an integer C model (`host/spectrum.c`) that the Verilog must match bar for bar (ADR-0005).
 
 Its input is the HDMI Resampler's 48 kHz output (ADR-0010), left and right mixed, which is already low-pass filtered: decimating Paula's 3.5 MHz frames directly would fold ultrasonic images into the bars. Once a video frame the last 1024 samples are windowed (Hann), transformed by a radix-2 FFT that halves at every stage (so 18-bit values never overflow; the result is the DFT / 1024), and each bar takes its loudest bin, in eighths of an octave of power (0.38 dB a pixel, a 68 dB range over 180 pixels). Bars are spaced logarithmically from 50 Hz to 20 kHz, except that every bar gets at least one bin of its own: at 46.9 Hz a bin, the lowest 26 bars step up a bin at a time to about 1.2 kHz. The tables (window, a quarter-wave sine for the twiddle factors, the bars' bins) are generated once by `tools/spectrum_tables.py` and committed.

@@ -10,6 +10,7 @@ module console_wrap #(
     parameter FW3 = "firmware3.hex",
     parameter COEFS = "resampler_coefs.hex",
     parameter FONT = "console_font.hex",
+    parameter SEGMENTS = "console_segments.hex",
     parameter SPECTRUM_WINDOW = "spectrum_window.hex",
     parameter SPECTRUM_SINE   = "spectrum_sine.hex",
     parameter SPECTRUM_BARS   = "spectrum_bars.hex"
@@ -47,8 +48,8 @@ module console_wrap #(
     output wire        dbg_scope_start,
     output wire [1:0]  dbg_scope_front,
     output wire [7:0]  dbg_control,
-    output wire [383:0] dbg_spectrum_bars,
-    output wire [383:0] dbg_spectrum_peaks,
+    output wire [191:0] dbg_spectrum_bars,
+    output wire [191:0] dbg_spectrum_peaks,
     output wire        dbg_spectrum_copy
 );
     wire        ext_valid, ext_ready;
@@ -69,7 +70,7 @@ module console_wrap #(
         .dbg_paula_we(dbg_paula_we), .dbg_paula_addr(dbg_paula_addr), .dbg_paula_wdata(dbg_paula_wdata)
     );
 
-    hdmi_out #(.COEFS(COEFS), .FONT(FONT), .SPECTRUM_WINDOW(SPECTRUM_WINDOW), .SPECTRUM_SINE(SPECTRUM_SINE),
+    hdmi_out #(.COEFS(COEFS), .FONT(FONT), .SEGMENTS(SEGMENTS), .SPECTRUM_WINDOW(SPECTRUM_WINDOW), .SPECTRUM_SINE(SPECTRUM_SINE),
                .SPECTRUM_BARS(SPECTRUM_BARS)) hdmi (
         .clk(clk), .rst(rst),
         .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),

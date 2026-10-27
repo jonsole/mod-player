@@ -44,7 +44,7 @@ if not exist xst_tmp mkdir xst_tmp
 if not exist xst_hdp mkdir xst_hdp
 copy /y ..\firmware\boot?.hex . >nul || goto fail
 if defined HDMI copy /y ..\..\..\rtl\resampler_coefs.hex . >nul || goto fail
-if defined HDMI copy /y ..\..\..\rtl\console_font.hex . >nul || goto fail
+if defined HDMI copy /y ..\..\..\rtl\console_*.hex . >nul || goto fail
 if defined HDMI copy /y ..\..\..\rtl\spectrum_*.hex . >nul || goto fail
 
 set RTL=..\..\..\..\hw\rtl
@@ -95,12 +95,13 @@ ngdbuild %UCF% -p %PART% top.ngc top.ngd || goto fail
 echo === map
 rem -pr b packs the SDRAM pin registers into the I/O blocks.
 rem On Windows 11, ISE 14.7's map sometimes dies during global placement with
-rem no message; the same run then succeeds, so it is tried up to three times.
+rem no message; another try often succeeds. Each try uses a different placer
+rem cost table (-t), so a crash that depends on the placement isn't repeated.
 set MAP_TRIES=0
 :map_again
 set /a MAP_TRIES+=1
-map -w -p %PART% -pr b -o top_map.ncd top.ngd top.pcf && goto map_done
-if %MAP_TRIES% lss 3 (
+map -w -p %PART% -pr b -t %MAP_TRIES% -o top_map.ncd top.ngd top.pcf && goto map_done
+if %MAP_TRIES% lss 5 (
   echo *** map stopped without finishing; trying again
   goto map_again
 )

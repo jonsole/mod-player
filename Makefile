@@ -293,10 +293,10 @@ hdmi-test: $(BUILD)/tmds_tb $(BUILD)/hdmi_tb $(BUILD)/hdmi_tb_d5 $(BUILD)/serial
 # The whole HDMI audio chain on two clocks: Songs' Paula frames in, decoded
 # HDMI audio out, equal to the Resampler C model's output
 HDMI_OUT_RTL := hw/rtl/hdmi_out.v hw/rtl/resampler.v hw/rtl/hdmi_audio_fifo.v hw/rtl/text_console.v hw/rtl/scopes.v hw/rtl/spectrum.v $(HDMI_RTL)
-$(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex $(SPECTRUM_TABLES) hw/sim/hdmi_chain_tb.cpp hw/sim/hdmi_sink.h \
+$(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex hw/rtl/console_segments.hex $(SPECTRUM_TABLES) hw/sim/hdmi_chain_tb.cpp hw/sim/hdmi_sink.h \
 		$(SIM_C) host/resampler.c $(wildcard firmware/replayer/*.h host/*.h) | $(BUILD)
 	$(VERILATOR) $(VFLAGS) --top-module hdmi_out -GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' \
-		-GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' $(SPECTRUM_PARAMS) $(HDMI_OUT_RTL) \
+		-GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' -GSEGMENTS='"$(CURDIR)/hw/rtl/console_segments.hex"' $(SPECTRUM_PARAMS) $(HDMI_OUT_RTL) \
 		$(CURDIR)/hw/sim/hdmi_chain_tb.cpp $(addprefix $(CURDIR)/,$(SIM_C) host/resampler.c) \
 		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
 		-Mdir $(BUILD)/obj_hdmi_chain -o hdmi_chain_tb >$(BUILD)/hdmi_chain_tb.log 2>&1 || (cat $(BUILD)/hdmi_chain_tb.log; false)
@@ -305,12 +305,13 @@ $(BUILD)/hdmi_chain_tb: $(HDMI_OUT_RTL) hw/rtl/resampler_coefs.hex hw/rtl/consol
 HDMI_CHAIN_SECONDS ?= 2
 # The text console end to end (issue #21): CPU and firmware, HDMI out,
 # every frame decoded and checked against the console model
-$(BUILD)/console_tb: $(SOC_RTL) $(HDMI_OUT_RTL) hw/rtl/console_font.hex hw/rtl/resampler_coefs.hex $(SPECTRUM_TABLES) \
-		hw/sim/console_wrap.v hw/sim/console_tb.cpp hw/sim/scope_ref.h hw/sim/hdmi_sink.h hw/sim/sdram_model.h \
+$(BUILD)/console_tb: $(SOC_RTL) $(HDMI_OUT_RTL) hw/rtl/console_font.hex hw/rtl/console_segments.hex hw/rtl/resampler_coefs.hex $(SPECTRUM_TABLES) \
+		hw/sim/console_wrap.v hw/sim/console_tb.cpp hw/sim/scope_ref.h hw/sim/spectrum_leds.h hw/sim/hdmi_sink.h hw/sim/sdram_model.h \
 		$(SIM_C) $(wildcard firmware/replayer/*.h host/*.h) $(BUILD)/fw/firmware0.hex | $(BUILD)
 	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module console_wrap \
 		$(foreach n,0 1 2 3,-GFW$(n)='"$(CURDIR)/$(BUILD)/fw/firmware$(n).hex"') \
 		-GCOEFS='"$(CURDIR)/hw/rtl/resampler_coefs.hex"' -GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' \
+		-GSEGMENTS='"$(CURDIR)/hw/rtl/console_segments.hex"' \
 		$(SPECTRUM_PARAMS) hw/sim/console_wrap.v $(SOC_RTL) $(HDMI_OUT_RTL) $(CURDIR)/hw/sim/console_tb.cpp \
 		$(addprefix $(CURDIR)/,$(SIM_C)) \
 		-CFLAGS "-O2 -I$(CURDIR)/hw/sim -I$(CURDIR)/host -I$(CURDIR)/firmware/replayer" \
@@ -318,8 +319,9 @@ $(BUILD)/console_tb: $(SOC_RTL) $(HDMI_OUT_RTL) hw/rtl/console_font.hex hw/rtl/r
 	cp $(BUILD)/obj_console/console_tb $@
 
 # its bus side alone, with writes as fast as the bus allows
-$(BUILD)/text_console_tb: hw/rtl/text_console.v hw/rtl/console_font.hex hw/sim/text_console_tb.cpp | $(BUILD)
-	$(VERILATOR) $(VFLAGS) --top-module text_console -GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' hw/rtl/text_console.v \
+$(BUILD)/text_console_tb: hw/rtl/text_console.v hw/rtl/console_font.hex hw/rtl/console_segments.hex hw/sim/text_console_tb.cpp | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module text_console -GFONT='"$(CURDIR)/hw/rtl/console_font.hex"' \
+		-GSEGMENTS='"$(CURDIR)/hw/rtl/console_segments.hex"' hw/rtl/text_console.v \
 		$(CURDIR)/hw/sim/text_console_tb.cpp -Mdir $(BUILD)/obj_text_console -o text_console_tb \
 		>$(BUILD)/text_console_tb.log 2>&1 || (cat $(BUILD)/text_console_tb.log; false)
 	cp $(BUILD)/obj_text_console/text_console_tb $@
@@ -341,7 +343,7 @@ console-test: $(BUILD)/console_tb $(BUILD)/text_console_tb $(BUILD)/scopes_tb $(
 	$(BUILD)/text_console_tb 400000
 	$(BUILD)/scopes_tb 120
 	$(BUILD)/scope_capture_tb 60
-	python3 -m unittest tests.test_console
+	python3 -m unittest tests.test_segment_font tests.test_console
 
 # ---- spectrum analyser (issue #24, ADR-0014) ------------------------------------
 # The tables are generated once and committed; this checks they are what
@@ -355,7 +357,7 @@ spectrum-tables-check: | $(BUILD)
 	@echo "== spectrum tables are up to date"
 
 # The Verilog against the C model, bar for bar and pixel for pixel
-$(BUILD)/spectrum_tb: hw/rtl/spectrum.v $(SPECTRUM_TABLES) hw/sim/spectrum_tb.cpp host/spectrum.c host/spectrum.h \
+$(BUILD)/spectrum_tb: hw/rtl/spectrum.v $(SPECTRUM_TABLES) hw/sim/spectrum_tb.cpp hw/sim/spectrum_leds.h host/spectrum.c host/spectrum.h \
 		host/spectrum_tables.h $(SIM_C) host/resampler.c $(wildcard firmware/replayer/*.h host/*.h) | $(BUILD)
 	$(VERILATOR) $(VFLAGS) --top-module spectrum -GWINDOW='"$(CURDIR)/hw/rtl/spectrum_window.hex"' \
 		-GSINE='"$(CURDIR)/hw/rtl/spectrum_sine.hex"' -GBARS='"$(CURDIR)/hw/rtl/spectrum_bars.hex"' \
@@ -373,8 +375,8 @@ spectrum-test: $(BUILD)/spectrum_tb spectrum-tables-check
 # tools/console_font.py and committed; this checks it is what the tool makes.
 font-check: | $(BUILD)
 	@python3 tools/console_font.py $(BUILD)/console_font.hex >/dev/null
-	@cmp -s $(BUILD)/console_font.hex hw/rtl/console_font.hex || \
-	  { echo "hw/rtl/console_font.hex is out of date: run tools/console_font.py hw/rtl/console_font.hex"; exit 1; }
+	@cmp -s $(BUILD)/console_font.hex hw/rtl/console_font.hex && cmp -s $(BUILD)/console_segments.hex hw/rtl/console_segments.hex || \
+	  { echo "hw/rtl/console_font.hex or console_segments.hex is out of date: run tools/console_font.py hw/rtl/console_font.hex"; exit 1; }
 	@echo "== console font is up to date"
 
 hdmi-chain-test: $(BUILD)/hdmi_chain_tb
@@ -393,7 +395,7 @@ hdmi-board-check: $(BUILD)/fw/boot0.hex
 	@echo "read_verilog -DHDMI $(addprefix $(CURDIR)/,$(filter-out %sim_primitives.v,$(HDMI_BOARD_RTL)))" > $(BUILD)/synth_hdmi.ys
 	@echo "synth_xilinx -family xc6s -top top" >> $(BUILD)/synth_hdmi.ys
 	@echo "stat" >> $(BUILD)/synth_hdmi.ys
-	cp hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex $(SPECTRUM_TABLES) $(BUILD)/fw/
+	cp hw/rtl/resampler_coefs.hex hw/rtl/console_font.hex hw/rtl/console_segments.hex $(SPECTRUM_TABLES) $(BUILD)/fw/
 	cd $(BUILD)/fw && yosys -q -l ../yosys_hdmi.log -s ../synth_hdmi.ys >/dev/null
 	@echo "Spartan-6 resources with HDMI (Yosys estimate; the XC6SLX25 has 15032 LUTs, 30064 flip-flops,"
 	@echo "38 DSP48A1 and 52 RAMB16):"

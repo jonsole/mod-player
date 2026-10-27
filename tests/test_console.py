@@ -135,8 +135,11 @@ class StatusScreen(unittest.TestCase):
         self.assertGreater(pixels, 10000, out)
 
 
-PALETTE = [0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,
-           0x555555, 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF]
+# a white vacuum fluorescent display (ADR-0016): colours 9-15 white, 1-8 dim; a
+# background shows the unlit segments (glyph 0x7F) in faint grey
+BRIGHT = [0x000000] + [0x9A9A9A] * 8 + [0xF4F4F4] * 7
+UNLIT_SEGMENT = 0x121212
+SEGMENTS = os.path.join(ROOT, "hw", "rtl", "console_segments.hex")
 
 
 def font():
@@ -144,18 +147,30 @@ def font():
         return [int(line, 16) for line in f if line.strip() and not line.startswith("//")]
 
 
+def segments():
+    with open(SEGMENTS) as f:
+        return [int(line, 16) for line in f if line.strip() and not line.startswith("//")]
+
+
 def render_text(chars, attr):
     """One 53-character row of the console (24 lines of 640 pixels, with the
     2-pixel black border each side) as RGB bytes."""
-    glyphs = font()
-    fg, bg = PALETTE[attr & 15].to_bytes(3, "big"), PALETTE[attr >> 4].to_bytes(3, "big")
+    glyphs, segs = font(), segments()
+    fg = BRIGHT[attr & 15].to_bytes(3, "big")
+    half = ((BRIGHT[attr & 15] >> 1) & 0x7F7F7F).to_bytes(3, "big")
+    unlit = UNLIT_SEGMENT.to_bytes(3, "big") if attr >> 4 else bytes(3)
     out = bytearray()
     for r in range(24):
         out += bytes(6)
         for ch in chars:
-            bits = glyphs[ch * 32 + r]
+            bits, diag, ghost = glyphs[ch * 32 + r], segs[256 + ch], segs[r]
+            edges = 0
+            for d in range(4):
+                if diag >> (3 - d) & 1:
+                    edges |= segs[32 * (d + 1) + r]
             for i in range(12):
-                out += fg if bits >> (11 - i) & 1 else bg
+                b = 11 - i
+                out += fg if bits >> b & 1 else half if edges >> b & 1 else unlit if ghost >> b & 1 else bytes(3)
         out += bytes(6)
     return bytes(out)
 

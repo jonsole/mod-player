@@ -17,13 +17,13 @@
 // frames while 0, or 1100 otherwise, it takes one anyway), and when the next
 // change arrives one engine, shared by the four Voices, divides to get the
 // slope, then writes the points that fall between the two, one a clock. Each point is the Voice's output * 3 / 32 in 1/16
-// pixels, so >> 4 gives pixels: -48..48 (a full-scale Voice fills its
+// pixels, so >> 4 gives pixels: -48..47 (a full-scale Voice fills its
 // scope; 7 bits stored). The arithmetic is integer and is defined by the
 // model in hw/sim/console_tb.cpp (the same, line for line).
 //
 // Persistence: each Voice keeps its last captures in a ring of 4 slots.
 // The screen shows the newest at full brightness and the two before it at
-// half and a quarter, like a scope's phosphor fading; the fourth slot is
+// three quarters and half, like a scope's phosphor fading; the fourth slot is
 // the one being captured into. A capture fills the slot after the newest;
 // when all four Voices are done that slot becomes the newest, and the
 // screen takes it at the next frame. A new capture starts only once the
@@ -462,7 +462,7 @@ module scopes (
         col_a <= cn[8:0];
         first_a <= col_n == 10'd0;
         last_a <= col_n == 10'd315;
-        dy_a <= 9'sd48 - $signed({1'b0, yband});
+        dy_a <= 9'sd47 - $signed({1'b0, yband});                // +47 at the top row, -48 at the bottom: the points' range
         in_a <= en_sync[1] && pixel_x >= 10'd2 && pixel_x < 10'd638 && pixel_y >= 10'd96 &&
                 pixel_y < 10'd288 && col_n < 10'd316;
     end
@@ -508,7 +508,7 @@ module scopes (
             on_trace = d2 >= lo && d2 <= hi;
         end
     endfunction
-    reg  [1:0] level_c, level_d;              // 3 newest, 2 half, 1 quarter, 0 none
+    reg  [1:0] level_c, level_d;              // 3 newest, 2 three quarters, 1 half, 0 none
     reg        centre_c, centre_d;
     always @(posedge clk_pixel) begin
         level_c <= !in_b ? 2'd0 :
@@ -524,14 +524,15 @@ module scopes (
     end
 
     // stage E: the colour, 5 clocks after pixel_x / pixel_y
-    wire [23:0] base = scope_d == 2'd0 ? 24'h55FF55 : scope_d == 2'd1 ? 24'h55FFFF :
-                       scope_d == 2'd2 ? 24'hFFFF55 : 24'hFF55FF;   // light green, cyan, yellow, magenta
+    wire [23:0] base = 24'hF4F4F4;            // white, like a vacuum fluorescent display (ADR-0016)
+    wire [23:0] half    = {1'b0, base[23:17], 1'b0, base[15:9], 1'b0, base[7:1]};
+    wire [23:0] quarter = {2'b0, base[23:18], 2'b0, base[15:10], 2'b0, base[7:2]};
     always @(posedge clk_pixel) begin
         on <= level_d != 2'd0 || centre_d;
         rgb <= level_d == 2'd3 ? base :
-               level_d == 2'd2 ? {1'b0, base[23:17], 1'b0, base[15:9], 1'b0, base[7:1]} :     // half
-               level_d == 2'd1 ? {2'b0, base[23:18], 2'b0, base[15:10], 2'b0, base[7:2]} :    // quarter
-               24'h555555;                                                                    // centre line
+               level_d == 2'd2 ? half + quarter :      // three quarters (no carry between bytes: 127 + 63 < 256)
+               level_d == 2'd1 ? half :
+               24'h303030;                             // centre line
     end
 endmodule
 `default_nettype wire

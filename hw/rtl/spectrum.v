@@ -1,4 +1,4 @@
-// The spectrum analyser on the HDMI picture (issue #24, ADR-0014): 48 bars
+// The spectrum analyser on the HDMI picture (issue #24, ADR-0014): 24 bars
 // of the mix's spectrum in rows 12-19 of the text console (y 288..479).
 // The analysis matches the C model (host/spectrum.c, which documents it)
 // bar for bar.
@@ -17,9 +17,12 @@
 // Pixel clock: the bars shown are copied at the start of the vertical
 // blanking, the same moment the next analysis is started; that analysis
 // changes the bars 0.24 ms later, long before the next copy, so the copy
-// never catches them half updated. Bars are 12 pixels wide, 13 apart from
-// x = 8, standing on y = 479, coloured green to yellow to red by height,
-// with a 2-pixel peak marker above. Like the console, the colour for pixel
+// never catches them half updated. Each bar is a stack of 25 LEDs like a
+// vacuum fluorescent display's (ADR-0016): 23 x 5 pixels, 26 apart across
+// from x = 8 and 7 apart up from y = 479. LED k (from 0 at the bottom) is lit
+// when the bar's height is at least 7 (k + 1); the peak is the one LED with
+// 7 k <= peak < 7 k + 7, from k = 1, brighter than the bar; unlit LEDs glow faintly, as a VFD's
+// unlit segments do. Like the console, the colour for pixel
 // (pixel_x, pixel_y) is ready 5 clocks later: on = this pixel is the
 // analyser's.
 //
@@ -49,8 +52,8 @@ module spectrum #(
     // (pixel clock)
     output wire               dbg_start,
     output reg                dbg_done,
-    output wire [383:0]       dbg_bars,
-    output wire [383:0]       dbg_peaks,
+    output wire [191:0]       dbg_bars,
+    output wire [191:0]       dbg_peaks,
     output wire               dbg_copy
 );
     localparam FLOOR = 9'd16, HEIGHT = 9'd180, FALL = 8'd4, HOLD = 5'd30;
@@ -58,7 +61,7 @@ module spectrum #(
     // ---- the tables (tools/spectrum_tables.py) ----------------------------------------
     reg [15:0] window [0:1023];
     (* rom_style = "distributed" *) reg [17:0] sine [0:256];
-    (* rom_style = "distributed" *) reg [19:0] bar_bins [0:47];    // first bin << 10 | last bin
+    (* rom_style = "distributed" *) reg [19:0] bar_bins [0:23];    // first bin << 10 | last bin
     initial begin
         $readmemh(WINDOW, window);
         $readmemh(SINE, sine);
@@ -169,9 +172,9 @@ module spectrum #(
     reg  [35:0] sq_r, sq_i;
     reg  [8:0]  lvl4;
     reg  [8:0]  acc;
-    reg  [7:0]  bar_h [0:47];
-    reg  [7:0]  peak_h [0:47];
-    reg  [4:0]  hold [0:47];
+    reg  [7:0]  bar_h [0:23];
+    reg  [7:0]  peak_h [0:23];
+    reg  [4:0]  hold [0:23];
     reg         bars_issue;
 
     function [8:0] log8;                                       // 8 x msb + the next 3 bits
@@ -213,7 +216,7 @@ module spectrum #(
             v1 <= 1'b0; v2 <= 1'b0; v3 <= 1'b0; v4 <= 1'b0; v5 <= 1'b0;
             bv1 <= 1'b0; bv2 <= 1'b0; bv3 <= 1'b0; bv4 <= 1'b0;
             bars_issue <= 1'b0;
-            for (i = 0; i < 48; i = i + 1) begin
+            for (i = 0; i < 24; i = i + 1) begin
                 bar_h[i] <= 8'd0;
                 peak_h[i] <= 8'd0;
                 hold[i] <= 5'd0;
@@ -296,7 +299,7 @@ module spectrum #(
                         hold[bb4] <= hold[bb4] - 1'b1;
                     else
                         peak_h[bb4] <= peak_h[bb4] - 1'b1;
-                    if (bb4 == 6'd47)
+                    if (bb4 == 6'd23)
                         dbg_done <= 1'b1;
                 end else
                     acc <= level;
@@ -334,7 +337,7 @@ module spectrum #(
                 S_BARS:
                     if (bars_issue) begin
                         if (bin == bin_hi) begin
-                            if (bar == 6'd47)
+                            if (bar == 6'd23)
                                 bars_issue <= 1'b0;
                             else begin
                                 bar <= bar + 1'b1;
@@ -350,15 +353,15 @@ module spectrum #(
 
     genvar g;
     generate
-        for (g = 0; g < 48; g = g + 1) begin : dbg
+        for (g = 0; g < 24; g = g + 1) begin : dbg
             assign dbg_bars[8 * g + 7 : 8 * g] = bar_h[g];
             assign dbg_peaks[8 * g + 7 : 8 * g] = peak_h[g];
         end
     endgenerate
 
     // ---- pixel clock: the bars shown ----------------------------------------------------
-    reg [7:0] show_h [0:47];
-    reg [7:0] show_p [0:47];
+    reg [7:0] show_h [0:23];
+    reg [7:0] show_p [0:23];
     reg [2:0] en_sync;
     wire      copy = pixel_x == 10'd0 && pixel_y == 10'd480;
     assign dbg_copy = copy;
@@ -370,7 +373,7 @@ module spectrum #(
             en_sync <= {en_sync[1:0], enable};
             if (copy) begin
                 frame_t <= !frame_t;                          // start the next analysis
-                for (i = 0; i < 48; i = i + 1) begin
+                for (i = 0; i < 24; i = i + 1) begin
                     show_h[i] <= bar_h[i];
                     show_p[i] <= peak_h[i];
                 end
@@ -378,19 +381,25 @@ module spectrum #(
         end
     end
 
-    // stage A: which bar, where in it, how high up
+    // stage A: which bar and how far across it; which LED and how far up it
     wire [9:0]  bx = pixel_x - 10'd8;
-    wire [22:0] bar_m = bx * 13'd5042;                         // bx / 13, exact for bx < 624
-    wire [5:0]  bar_n = bar_m[21:16];
-    reg  [5:0]  bar_a;
-    reg  [3:0]  sub_a;
-    reg  [7:0]  pos_a, pos_b, pos_c;
+    wire [20:0] bar_m = bx * 11'd1261;                         // bx / 26, exact for bx < 624
+    wire [4:0]  bar_n = bar_m[19:15];
+    wire [9:0]  bar_x26 = {bar_n, 4'b0000} + {bar_n, 3'b000} + {bar_n, 1'b0};   // 26 x bar
+    wire [7:0]  pos_n = 8'd223 - pixel_y[7:0];                 // 479 - y, for y in 288..479
+    wire [16:0] led_m = pos_n * 9'd293;                        // pos / 7, exact for pos < 256
+    wire [4:0]  led_n = led_m[15:11];
+    wire [7:0]  led_x7 = {led_n, 3'b000} - led_n;              // 7 x LED
+    reg  [4:0]  bar_a, led_a, led_b;
+    reg  [7:0]  led7_a, led7_b;                                // 7 x LED: its bottom
     reg         in_a, in_b;
     always @(posedge clk_pixel) begin
         bar_a <= bar_n;
-        sub_a <= bx[3:0] - {bar_n[3:0], 3'b000} - {bar_n[3:0], 2'b00} - bar_n[3:0];   // bx - 13 x bar
-        pos_a <= 8'd223 - pixel_y[7:0];                        // 479 - y, for y in 288..479
-        in_a <= en_sync[1] && pixel_x >= 10'd8 && pixel_x < 10'd632 && pixel_y >= 10'd288 && pixel_y < 10'd480;
+        led_a <= led_n;
+        led7_a <= led_x7;
+        in_a <= en_sync[1] && pixel_x >= 10'd8 && pixel_x < 10'd632 && pixel_y >= 10'd288 && pixel_y < 10'd480 &&
+                bx - bar_x26 < 10'd23 &&                       // across the LED, not the gap
+                pos_n - led_x7 < 8'd5 && led_n < 5'd25;        // up the LED, not the gap; 25 LEDs
     end
 
     // stage B: the bar's height and peak
@@ -398,30 +407,27 @@ module spectrum #(
     always @(posedge clk_pixel) begin
         h_b <= show_h[bar_a];
         p_b <= show_p[bar_a];
-        pos_b <= pos_a;
-        in_b <= in_a && sub_a < 4'd12;
+        led_b <= led_a;
+        led7_b <= led7_a;
+        in_b <= in_a;
     end
 
-    // stage C: in the bar, or its peak marker (two pixels at the peak height)
-    reg bar_c, peak_c, bar_d, peak_d;
-    reg [7:0] pos_d;
+    // stage C: lit as part of the bar, or as the peak (always above the bar's top LED)
+    wire [8:0] top7 = {1'b0, led7_b} + 9'd7;                   // 7 (k + 1)
+    reg bar_c, peak_c, ghost_c, bar_d, peak_d, ghost_d;
     always @(posedge clk_pixel) begin
-        bar_c <= in_b && pos_b < h_b;
-        peak_c <= in_b && p_b != 8'd0 && (pos_b == p_b || pos_b == p_b + 8'd1);
-        pos_c <= pos_b;
+        bar_c <= in_b && {1'b0, h_b} >= top7;
+        peak_c <= in_b && led_b != 5'd0 && p_b >= led7_b && {1'b0, p_b} < top7;
+        ghost_c <= in_b;
         bar_d <= bar_c;
         peak_d <= peak_c;
-        pos_d <= pos_c;
+        ghost_d <= ghost_c;
     end
 
-    // stage E: green, rising to yellow at 96 pixels, then to red
-    wire [8:0] up = {pos_d, 2'b00} + pos_d;                    // 5 x pos
-    wire [8:0] down = {pos_d - 8'd96, 2'b00} + (pos_d - 8'd96);
-    wire [7:0] red = pos_d < 8'd96 ? up[8:1] : 8'd255;
-    wire [7:0] green = pos_d < 8'd96 ? 8'd255 : 8'd255 - down[8:1];
+    // stage E: the peak bright white, the bar a little dimmer, unlit a faint grey
     always @(posedge clk_pixel) begin
-        on <= bar_d || peak_d;
-        rgb <= peak_d ? 24'hE0E0E0 : {red, green, 8'h20};
+        on <= ghost_d;
+        rgb <= peak_d ? 24'hF4F4F4 : bar_d ? 24'hB0B0B0 : 24'h121212;
     end
 endmodule
 `default_nettype wire

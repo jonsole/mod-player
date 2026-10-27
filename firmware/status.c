@@ -14,10 +14,18 @@
  *           these rows (hw/rtl/scopes.v); the text here is just their numbers
  *   12..19  the spectrum analyser of the mix, drawn by the hardware
  *           (hw/rtl/spectrum.v) */
-#define TITLE   ATTR(WHITE, BLUE)
-#define NAME    ATTR(YELLOW, BLACK)
-#define LABEL   ATTR(DARK_GREY, BLACK)
-#define VALUE   ATTR(WHITE, BLACK)
+/* The console looks like a white vacuum fluorescent display (ADR-0016):
+ * bright colours are white, the others dim, and any background shows a
+ * character's unlit segments faintly. Rows 0-3 are the VFD panel, every
+ * cell with its segments; the rows under the scopes and the spectrum have
+ * no background, so nothing shows behind them. */
+#define PANEL_BG BLUE                                   /* any background shows the segments */
+#define TITLE   ATTR(WHITE, PANEL_BG)
+#define NAME    ATTR(WHITE, PANEL_BG)
+#define LABEL   ATTR(DARK_GREY, PANEL_BG)
+#define VALUE   ATTR(WHITE, PANEL_BG)
+#define PANEL   ATTR(LIGHT_GREY, PANEL_BG)
+#define SCOPE_NUMBER ATTR(DARK_GREY, BLACK)
 #define TEXT    ATTR_NORMAL
 #define POS_ROW 2
 
@@ -78,13 +86,13 @@ static void draw_position(const player_position_t *p, int valid)
 static void draw_song(const mod_song_t *s)
 {
     for (int r = 0; r < CONSOLE_ROWS; r++)
-        text(r, 0, "", CONSOLE_COLS, TEXT);
+        text(r, 0, "", CONSOLE_COLS, r < 4 ? PANEL : TEXT);
     text(0, 0, " mod-player " VERSION, CONSOLE_COLS, TITLE);
     text(1, 1, s->name, 20, NAME);
     for (int c = 1; c < CONSOLE_COLS - 1; c++)
         put(3, c, 0xC4, LABEL);                         /* the rule: a line */
     for (int v = 0; v < 4; v++)                           /* the 2 x 2 grid of scopes */
-        put(4 + 4 * (v >> 1), (v & 1) ? 27 : 0, (uint8_t)('1' + v), LABEL);
+        put(4 + 4 * (v >> 1), (v & 1) ? 27 : 0, (uint8_t)('1' + v), SCOPE_NUMBER);
 }
 
 /* Copies changed cells to the console, but only in the blanking, and only

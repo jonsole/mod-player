@@ -1,9 +1,16 @@
 // Text console for the HDMI picture (issue #21, ADR-0012): 53 x 20 cells of
-// 12 x 24 pixels (Spleen, console_font.hex), each a character in code page
-// 437 and an attribute: low nibble the foreground colour, high nibble the
-// background, from the 16 VGA colours. The grid is 636 pixels wide, so a
-// 2-pixel black border is left at each side. Cell 0 is the top left; cell n
-// is row n / 53, column n % 53.
+// 12 x 24 pixels (console_font.hex: 16-segment characters for ASCII, Spleen
+// for the rest of code page 437), each a character and an attribute: low
+// nibble the foreground colour, high nibble the background. The picture
+// looks like a white vacuum fluorescent display (ADR-0016): the foreground
+// is white for the bright colours (9-15) and dim for the others (1-8); a
+// non-zero background shows the unlit segments of a 16-segment character
+// (console_segments.hex) in a faint grey wherever the character itself is
+// unlit, as on a VFD module; background 0 is black. Diagonal segments are
+// anti-aliased: console_segments.hex also says which diagonals each
+// character lights, and their edge pixels are drawn at half brightness.
+// The grid is 636 pixels wide, so a 2-pixel black border is left at each
+// side. Cell 0 is the top left; cell n is row n / 53, column n % 53.
 //
 // System clock side, a small bus (the SoC's 0x2001_0000 window):
 //   addr[14] = 0: cell addr[13:2] (0..1059), write only: data[7:0] character,
@@ -25,7 +32,8 @@
 // Plain Verilog-2001 for Xilinx ISE (ADR-0004).
 `default_nettype none
 module text_console #(
-    parameter FONT = "console_font.hex"
+    parameter FONT = "console_font.hex",
+    parameter SEGMENTS = "console_segments.hex"
 ) (
     // system clock
     input wire         clk,
@@ -128,6 +136,7 @@ module text_console #(
     reg  [11:0] cell_b;
     reg  [7:0]  ch_c, at_c, at_d;
     reg  [11:0] glyph_d;
+    reg  [3:0]  diag_d;
 
     always @(posedge clk_pixel) begin
         col_a <= col_n;
@@ -169,23 +178,36 @@ module text_console #(
     always @(posedge clk_pixel)
         glyph_d <= font[{ch_c, gl_c}];
 
-    // ---- the 16 VGA colours ----------------------------------------------------------
-    function [23:0] palette;
+    // ---- the unlit segments, the diagonals' edges, each character's diagonals ------
+    // (in logic. Reading the diagonals from a spare font row on the font
+    // memory's second port crashed XST.)
+    (* rom_style = "distributed" *) reg [11:0] segs [0:511];
+    initial $readmemh(SEGMENTS, segs);
+    reg [11:0] ghost_d, edge_h, edge_j, edge_k, edge_m;
+    always @(posedge clk_pixel) begin
+        ghost_d <= segs[{4'd0, gl_c}];
+        edge_h  <= segs[{4'd1, gl_c}];
+        edge_j  <= segs[{4'd2, gl_c}];
+        edge_k  <= segs[{4'd3, gl_c}];
+        edge_m  <= segs[{4'd4, gl_c}];
+        diag_d  <= segs[{1'b1, ch_c}][3:0];
+    end
+
+    // ---- a white VFD's brightnesses ------------------------------------------------
+    function [23:0] bright;
         input [3:0] c;
-        case (c)
-            4'h0: palette = 24'h000000; 4'h1: palette = 24'h0000AA;
-            4'h2: palette = 24'h00AA00; 4'h3: palette = 24'h00AAAA;
-            4'h4: palette = 24'hAA0000; 4'h5: palette = 24'hAA00AA;
-            4'h6: palette = 24'hAA5500; 4'h7: palette = 24'hAAAAAA;
-            4'h8: palette = 24'h555555; 4'h9: palette = 24'h5555FF;
-            4'hA: palette = 24'h55FF55; 4'hB: palette = 24'h55FFFF;
-            4'hC: palette = 24'hFF5555; 4'hD: palette = 24'hFF55FF;
-            4'hE: palette = 24'hFFFF55; default: palette = 24'hFFFFFF;
-        endcase
+        bright = c == 4'h0 ? 24'h000000 : (c[3] && c != 4'h8) ? 24'hF4F4F4 : 24'h9A9A9A;
     endfunction
 
     // stage E: the pixel's colour; rgb holds it 5 clocks after pixel_x / pixel_y
+    wire [3:0]  px = 4'd11 - sub_d;
+    wire        on_edge = (diag_d[3] && edge_h[px]) || (diag_d[2] && edge_j[px]) ||
+                          (diag_d[1] && edge_k[px]) || (diag_d[0] && edge_m[px]);
+    wire [23:0] fg = bright(at_d[3:0]);
     always @(posedge clk_pixel)
-        rgb <= !in_d ? 24'h000000 : glyph_d[4'd11 - sub_d] ? palette(at_d[3:0]) : palette(at_d[7:4]);
+        rgb <= !in_d ? 24'h000000 :
+               glyph_d[px] ? fg :
+               on_edge ? {1'b0, fg[23:17], 1'b0, fg[15:9], 1'b0, fg[7:1]} :     // half
+               (at_d[7:4] != 4'h0 && ghost_d[px]) ? 24'h121212 : 24'h000000;
 endmodule
 `default_nettype wire

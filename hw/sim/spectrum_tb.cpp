@@ -30,17 +30,11 @@ static int failures;
 static spectrum_t model;
 
 // The analyser's pixel at (x, y) from the bars shown: 0 if none.
+#include "spectrum_leds.h"
+
 static uint32_t pixel(int x, int y, const uint8_t *h, const uint8_t *p)
 {
-    if (x < 8 || x >= 632 || y < 288 || y >= 480) return 0;
-    int bx = x - 8, bar = bx / 13, sub = bx % 13, pos = 479 - y;
-    if (sub >= 12) return 0;
-    if (p[bar] && (pos == p[bar] || pos == p[bar] + 1)) return 0xE0E0E0;
-    if (pos < h[bar]) {
-        int red = pos < 96 ? pos * 5 / 2 : 255, green = pos < 96 ? 255 : 255 - (pos - 96) * 5 / 2;
-        return (uint32_t)(red << 16 | green << 8 | 0x20);
-    }
-    return 0;
+    return spectrum_led_pixel(x, y, h, p);
 }
 
 // The test programme: what the samples are in each stretch of time.
@@ -103,7 +97,7 @@ int main(int argc, char **argv)
     long sample_no = 0;
     int analyses = 0, frames_seen = 0, pixels_lit = 0, x = 0, y = 0, max_bar = 0;
     bool pending = false;
-    uint8_t shown_h[48] = {0}, shown_p[48] = {0};
+    uint8_t shown_h[SPECTRUM_BARS] = {0}, shown_p[SPECTRUM_BARS] = {0};
     std::deque<std::pair<int, int>> named;                    // pixel_x/y, latest last
 
     while (frames_seen < frames) {
@@ -154,7 +148,7 @@ int main(int argc, char **argv)
             if (dut->dbg_done) {
                 if (!pending) FAIL("bars updated without an analysis");
                 pending = false;
-                for (int b = 0; b < 48; b++) {
+                for (int b = 0; b < SPECTRUM_BARS; b++) {
                     int hb = (int)(dut->dbg_bars[b / 4] >> (8 * (b % 4)) & 0xFF);
                     int hp = (int)(dut->dbg_peaks[b / 4] >> (8 * (b % 4)) & 0xFF);
                     if (hb != model.bar[b] || hp != model.peak[b])
@@ -169,7 +163,7 @@ int main(int argc, char **argv)
             dut->pixel_x = x; dut->pixel_y = y;
             dut->clk_pixel = 1; dut->eval();
             if (dut->dbg_copy || (x == 0 && y == 480)) {      // the display's copy, at this edge
-                for (int b = 0; b < 48; b++) {
+                for (int b = 0; b < SPECTRUM_BARS; b++) {
                     shown_h[b] = (uint8_t)(dut->dbg_bars[b / 4] >> (8 * (b % 4)));
                     shown_p[b] = (uint8_t)(dut->dbg_peaks[b / 4] >> (8 * (b % 4)));
                 }

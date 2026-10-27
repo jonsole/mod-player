@@ -69,7 +69,7 @@ static void test_silence_shows_nothing(void)
 
 static void test_a_tone_lights_its_own_bar(void)
 {
-    int bars[] = {0, 3, 10, 20, 27, 33, 40, 47};
+    int bars[] = {0, 3, 8, 10, 14, 17, 20, 23};
     for (unsigned i = 0; i < sizeof bars / sizeof bars[0]; i++) {
         spectrum_reset(&sp);
         push_sine(bar_hz(bars[i]), 20000, 1024);
@@ -85,22 +85,22 @@ static void test_a_tone_lights_its_own_bar(void)
 static void test_a_full_scale_tone_nearly_fills_the_height(void)
 {
     spectrum_reset(&sp);
-    push_sine(bar_hz(30), 65000, 1024);
+    push_sine(bar_hz(15), 65000, 1024);
     spectrum_frame(&sp);
-    CHECK(sp.bar[30] >= 170);
-    CHECK(sp.bar[30] <= SPECTRUM_HEIGHT);
+    CHECK(sp.bar[15] >= 170);
+    CHECK(sp.bar[15] <= SPECTRUM_HEIGHT);
 }
 
 static void test_40_dB_quieter_is_106_pixels_lower(void)
 {
     spectrum_reset(&sp);
-    push_sine(bar_hz(30), 30000, 1024);
+    push_sine(bar_hz(15), 30000, 1024);
     spectrum_frame(&sp);
-    int loud = sp.level[30];
+    int loud = sp.level[15];
     spectrum_reset(&sp);
-    push_sine(bar_hz(30), 300, 1024);
+    push_sine(bar_hz(15), 300, 1024);
     spectrum_frame(&sp);
-    int quiet = sp.level[30];
+    int quiet = sp.level[15];
     CHECK(abs(loud - quiet - 106) <= 4);           /* 40 dB / 0.376 dB a step */
 }
 

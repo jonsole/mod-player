@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define SPECTRUM_N 1024
-#define SPECTRUM_BARS 48
+#define SPECTRUM_BARS 24
 
 static const uint16_t spectrum_window[1024] = {
     0, 0, 1, 3, 5, 8, 11, 15, 20, 25, 31, 37,
@@ -126,7 +126,7 @@ static const int32_t spectrum_sine[257] = {
 };
 
 /* first and last FFT bin of each bar */
-static const uint16_t spectrum_bar_lo[48] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 31, 35, 40, 45, 51, 58, 66, 74, 84, 95, 108, 122, 139, 157, 178, 202, 229, 259, 293, 332, 377};
-static const uint16_t spectrum_bar_hi[48] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 30, 34, 39, 44, 50, 57, 65, 73, 83, 94, 107, 121, 138, 156, 177, 201, 228, 258, 292, 331, 376, 426};
+static const uint16_t spectrum_bar_lo[24] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 17, 21, 27, 35, 45, 58, 74, 95, 122, 157, 202, 259, 332};
+static const uint16_t spectrum_bar_hi[24] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 16, 20, 26, 34, 44, 57, 73, 94, 121, 156, 201, 258, 331, 426};
 
 #endif

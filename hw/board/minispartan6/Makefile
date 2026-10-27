@@ -59,7 +59,7 @@ $(BUILD)/top.xst: Makefile | $(BUILD)
 
 $(BUILD)/top.ngc: $(RTL) top.xcf $(BUILD)/top.prj $(BUILD)/top.xst firmware
 	cp $(FW)/boot0.hex $(FW)/boot1.hex $(FW)/boot2.hex $(FW)/boot3.hex $(BUILD)/
-	cp $(ROOT)/hw/rtl/resampler_coefs.hex $(ROOT)/hw/rtl/console_font.hex $(ROOT)/hw/rtl/spectrum_*.hex $(BUILD)/
+	cp $(ROOT)/hw/rtl/resampler_coefs.hex $(ROOT)/hw/rtl/console_*.hex $(ROOT)/hw/rtl/spectrum_*.hex $(BUILD)/
 	mkdir -p $(BUILD)/xst_tmp $(BUILD)/xst_hdp
 	cd $(BUILD) && xst -ifn top.xst -ofn top.srp
 

@@ -8,7 +8,7 @@ is involved in a build.
   window   1024-point periodic Hann window, Q15 (0..32767)
   sine     sin(2 pi i / 1024) for i = 0..256, Q17 (0..131071): a quarter
            wave, from which the FFT's twiddle factors are read
-  bars     for each of the 48 bars, the first and last FFT bin it covers:
+  bars     for each of the 24 bars, the first and last FFT bin it covers:
            log-spaced from 50 Hz to 20 kHz at 48 kHz / 1024 = 46.875 Hz a
            bin (low bars share a bin, as the bins are wider than the bands)
 
@@ -19,7 +19,7 @@ import sys
 
 N = 1024
 FS = 48000
-BARS = 48
+BARS = 24
 F_LO, F_HI = 50.0, 20000.0
 WINDOW_ONE = 32767        # Q15
 SINE_ONE = 131071         # Q17, 18-bit signed

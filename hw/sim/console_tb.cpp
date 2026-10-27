@@ -51,6 +51,7 @@
 #include "paula_model.h"
 #include "replayer.h"
 #include "scope_ref.h"
+#include "spectrum_leds.h"
 
 static const int BIT = 50;                         // 50 MHz / 1 Mbaud
 
@@ -67,9 +68,12 @@ static std::vector<uint8_t> read_file(const char *path)
 
 // ---- the console model ------------------------------------------------------------
 static uint16_t font[8192];
-static const uint32_t PALETTE[16] = {
-    0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,
-    0x555555, 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF};
+// a white vacuum fluorescent display (ADR-0016): colours 9-15 white, 1-8 dim
+static const uint32_t BRIGHT[16] = {
+    0x000000, 0x9A9A9A, 0x9A9A9A, 0x9A9A9A, 0x9A9A9A, 0x9A9A9A, 0x9A9A9A, 0x9A9A9A,
+    0x9A9A9A, 0xF4F4F4, 0xF4F4F4, 0xF4F4F4, 0xF4F4F4, 0xF4F4F4, 0xF4F4F4, 0xF4F4F4};
+static const uint32_t UNLIT_SEGMENT = 0x121212;
+static uint16_t segs[512];                    // console_segments.hex: unlit pattern, diagonals' edges, each character's diagonals
 
 static void load_font(const char *path)
 {
@@ -82,6 +86,19 @@ static void load_font(const char *path)
             font[n++] = (uint16_t)strtol(line, nullptr, 16);
     fclose(f);
     if (n != 8192) { printf("%s: %d font rows, expected 8192\n", path, n); exit(2); }
+    // console_segments.hex, beside the font
+    std::string sp = path;
+    size_t at = sp.rfind("console_font.hex");
+    if (at == std::string::npos) { printf("%s: expected a path ending console_font.hex\n", path); exit(2); }
+    sp.replace(at, 16, "console_segments.hex");
+    f = fopen(sp.c_str(), "r");
+    if (!f) { printf("cannot read %s\n", sp.c_str()); exit(2); }
+    n = 0;
+    while (fgets(line, sizeof line, f) && n < 512)
+        if (line[0] != '/' && line[0] != '\n')
+            segs[n++] = (uint16_t)strtol(line, nullptr, 16);
+    fclose(f);
+    if (n != 512) { printf("%s: %d rows, expected 512\n", sp.c_str(), n); exit(2); }
 }
 
 // The console: 53 x 20 cells of 12 x 24 pixels from x = 2 (a 2-pixel black
@@ -91,9 +108,15 @@ static const int COLS = 53, ROWS = 20, CW = 12, CH = 24, LEFT = 2, CELLS = 53 * 
 // The 12 pixels of glyph row r of a cell holding v (attribute << 8 | character).
 static void render_row(uint16_t v, int r, uint32_t out[12])
 {
-    uint16_t bits = font[(v & 0xFF) * 32 + r];
-    uint32_t fg = PALETTE[v >> 8 & 15], bg = PALETTE[v >> 12 & 15];
-    for (int i = 0; i < CW; i++) out[i] = (bits >> (11 - i) & 1) ? fg : bg;
+    uint16_t bits = font[(v & 0xFF) * 32 + r], diag = segs[256 + (v & 0xFF)], ghost = segs[r];
+    uint16_t edges = 0;                       // the half-brightness edges of the glyph's diagonals
+    for (int d = 0; d < 4; d++)
+        if (diag >> (3 - d) & 1) edges |= segs[32 * (d + 1) + r];
+    uint32_t fg = BRIGHT[v >> 8 & 15], half = (fg >> 1) & 0x7F7F7F;
+    bool segments = (v >> 12 & 15) != 0;      // a background: show the unlit segments
+    for (int i = 0; i < CW; i++)
+        out[i] = (bits >> (11 - i) & 1) ? fg : (edges >> (11 - i) & 1) ? half :
+                 (segments && (ghost >> (11 - i) & 1)) ? UNLIT_SEGMENT : 0;
 }
 
 // ---- the status screen check (--song) -----------------------------------------------
@@ -173,8 +196,8 @@ static uint32_t scope_pixel(int x, int y)
     int gx = x - 2, right = gx >= 320, col = right ? gx - 320 : gx, yl = y - 96;
     int v = (yl >= 96 ? 2 : 0) + right;            // a 2 x 2 grid, 316 x 96 each
     if (col >= 316) return 0;                      // the gap between scopes
-    static const uint32_t colour[4] = {0x55FF55, 0x55FFFF, 0xFFFF55, 0xFF55FF};
-    int dy = 48 - (yl >= 96 ? yl - 96 : yl);
+    static const uint32_t colour[4] = {0xF4F4F4, 0xF4F4F4, 0xF4F4F4, 0xF4F4F4};   // all white (ADR-0016)
+    int dy = 47 - (yl >= 96 ? yl - 96 : yl);       // +47 at the top row, -48 at the bottom
     for (int age = 0; age < 3; age++) {
         int slot = (scope_front - age) & 3;
         // the line through the points: this column spans from its midpoint with the
@@ -185,13 +208,16 @@ static uint32_t scope_pixel(int x, int y)
         int ml = p + c, mr = c + n, c2 = 2 * c;
         int lo = std::min(std::min(ml, mr), c2), hi = std::max(std::max(ml, mr), c2);
         if (2 * dy >= lo && 2 * dy <= hi)
-            return age == 0 ? colour[v] : age == 1 ? (colour[v] >> 1) & 0x7F7F7F : (colour[v] >> 2) & 0x3F3F3F;
+        {
+            uint32_t half = (colour[v] >> 1) & 0x7F7F7F, quarter = (colour[v] >> 2) & 0x3F3F3F;
+            return age == 0 ? colour[v] : age == 1 ? half + quarter : half;     // full, 3/4, 1/2
+        }
     }
-    return dy == 0 ? 0x555555 : 0;
+    return dy == 0 ? 0x303030 : 0;
 }
 
 // the spectrum analyser's bars as the display copied them (hw/rtl/spectrum.v)
-static uint8_t spectrum_h[48], spectrum_p[48];
+static uint8_t spectrum_h[24], spectrum_p[24];
 static bool spectrum_enable;
 static uint64_t spectrum_enable_changed;
 static int spectrum_frames;
@@ -199,15 +225,7 @@ static uint64_t spectrum_pixels;
 
 static uint32_t spectrum_pixel(int x, int y)
 {
-    if (x < 8 || x >= 632 || y < 288 || y >= 480) return 0;
-    int bx = x - 8, bar = bx / 13, sub = bx % 13, pos = 479 - y;
-    if (sub >= 12) return 0;
-    if (spectrum_p[bar] && (pos == spectrum_p[bar] || pos == spectrum_p[bar] + 1)) return 0xE0E0E0;
-    if (pos < spectrum_h[bar]) {
-        int red = pos < 96 ? pos * 5 / 2 : 255, green = pos < 96 ? 255 : 255 - (pos - 96) * 5 / 2;
-        return (uint32_t)(red << 16 | green << 8 | 0x20);
-    }
-    return 0;
+    return spectrum_led_pixel(x, y, spectrum_h, spectrum_p);
 }
 
 struct Change { uint64_t clk; uint16_t value; };
@@ -234,14 +252,14 @@ static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
         spectrum_frames++;
         for (int y = 288; y < 480; y++)
             for (int x = 8; x < 632; x++)
-                if (spectrum_pixel(x, y)) spectrum_pixels++;
+                if (spectrum_pixel(x, y) == SPECTRUM_LIT || spectrum_pixel(x, y) == SPECTRUM_PEAK) spectrum_pixels++;
     }
     if (scopes_shown) {
         scope_frames++;
         for (int y = 96; y < 288; y++)
             for (int x = 2; x < 638; x++) {
                 uint32_t s = scope_pixel(x, y);
-                if (s && s != 0x555555) scope_trace_pixels++;
+                if (s && s != 0x303030) scope_trace_pixels++;
             }
     }
     for (int cell = 0; cell < CELLS; cell++) {
@@ -320,9 +338,35 @@ static void hdmi_on_frame(const std::vector<uint32_t> &rgb)
 
 static void hdmi_on_sample(int32_t, int32_t) {}
 
+// Every point the capture can write (full scale: -8192 -> -48, 8128 -> 47)
+// must be drawable: a flat trace at that value lights a pixel inside its
+// scope, at the row it belongs to. The hardware is checked against
+// scope_pixel, so this covers its range too.
+static int check_scope_range()
+{
+    int bad = 0;
+    for (int p = scope_q(-8192) >> 4; p <= scope_q(8128) >> 4; p++) {
+        for (int v = 0; v < 4; v++)
+            for (int s = 0; s < 4; s++)
+                for (int i = 0; i < 316; i++) scope_buf[v][s][i] = 0;
+        for (int i = 0; i < 316; i++) scope_buf[3][scope_front & 3][i] = (int8_t)p;   // bottom right
+        int lit = 0, row = -1;
+        for (int y = 192; y < 288; y++)                      // the bottom right scope's rows
+            if (scope_pixel(2 + 320 + 100, y) == 0xF4F4F4) { lit++; row = y; }
+        if (lit != 1 || (row - 192) != 47 - p) {
+            if (bad++ < 5) printf("FAIL: a flat trace at point %d lights %d pixels (row %d)\n", p, lit, row);
+        }
+    }
+    for (int v = 0; v < 4; v++)
+        for (int s = 0; s < 4; s++)
+            for (int i = 0; i < 316; i++) scope_buf[v][s][i] = 0;
+    return bad;
+}
+
 int main(int argc, char **argv)
 {
     Verilated::commandArgs(argc, argv);
+    if (check_scope_range()) return 1;
     struct Step { const char *after; std::vector<uint8_t> send; };
     std::vector<Step> steps;
     const char *expect = nullptr, *ppm = nullptr, *font_path = nullptr;
@@ -455,7 +499,7 @@ int main(int argc, char **argv)
             dut->clk_pixel = 1;
             dut->eval();
             if (dut->dbg_spectrum_copy)          // the spectrum display took its copy at this edge
-                for (int b = 0; b < 48; b++) {
+                for (int b = 0; b < 24; b++) {
                     spectrum_h[b] = (uint8_t)(dut->dbg_spectrum_bars[b / 4] >> (8 * (b % 4)));
                     spectrum_p[b] = (uint8_t)(dut->dbg_spectrum_peaks[b / 4] >> (8 * (b % 4)));
                 }

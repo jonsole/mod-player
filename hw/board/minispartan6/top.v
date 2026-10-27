@@ -18,7 +18,8 @@ module top #(
     parameter FW3 = "boot3.hex",
     parameter RESET_ADDR = 32'h0000_F000, // the boot loader's power-on entry
     parameter COEFS = "resampler_coefs.hex",  // HDMI build: the Resampler's table
-    parameter FONT = "console_font.hex"           // HDMI build: the text console's font
+    parameter FONT = "console_font.hex",          // HDMI build: the text console's font
+    parameter SEGMENTS = "console_segments.hex"   // and its 16-segment patterns
 ) (
     input         CLK50,
     output [7:0]  LEDS,
@@ -122,7 +123,7 @@ module top #(
     // ---- HDMI: 640x480 at 60 Hz with Paula's audio at 48 kHz (ADR-0010) ----
     wire       clk_pixel, rst_pixel;
     wire [9:0] tmds0, tmds1, tmds2;
-    hdmi_out #(.COEFS(COEFS), .FONT(FONT)) hdmi (
+    hdmi_out #(.COEFS(COEFS), .FONT(FONT), .SEGMENTS(SEGMENTS)) hdmi (
         .clk(clk), .rst(rst),
         .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),
         .text_valid(ext_valid), .text_addr(ext_addr), .text_wdata(ext_wdata[15:0]), .text_wstrb(ext_wstrb),
