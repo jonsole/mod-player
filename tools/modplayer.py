@@ -7,6 +7,7 @@
     python3 tools/modplayer.py [--port PORT] firmware firmware.bin [--save]
                                      (run new firmware now; --save also keeps it in flash)
     python3 tools/modplayer.py [--port PORT] boot   (back to the boot loader)
+    python3 tools/modplayer.py [--port PORT] sd-init | sd-crc [--lba N] [--count N]   (the microSD card)
 
 PORT defaults to /dev/ttyUSB1 (the FT2232H's second port on Linux; on
 Windows something like COM4). Needs pyserial (pip install pyserial).
@@ -32,7 +33,12 @@ def encode_play_from_memory(length):
 
 
 SIMPLE = {"version": b"V", "play": b"P", "stop": b"S", "pause": b"U", "info": b"I",
-          "flash-id": b"F", "boot": b"B"}
+          "flash-id": b"F", "boot": b"B", "sd-init": b"D"}
+
+
+def encode_sd_crc(lba, count):
+    """CRC-32 of `count` 512-byte blocks of the SD card from block `lba`: E, lba, count."""
+    return b"E" + struct.pack("<II", lba, count)
 
 
 def encode_flash_write(addr, data):
@@ -225,10 +231,12 @@ def run_firmware(ser, image, save=False):
 def main(argv):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--port", default="/dev/ttyUSB1")
-    p.add_argument("command", choices=["load", "flash-write", "save", "forget", "firmware"] + sorted(SIMPLE))
+    p.add_argument("command", choices=["load", "flash-write", "save", "forget", "firmware", "sd-crc"] + sorted(SIMPLE))
     p.add_argument("file", nargs="?")
     p.add_argument("--addr", type=lambda s: int(s, 0), default=0,
                    help="flash-write: flash address (default 0, where the FPGA boots from)")
+    p.add_argument("--lba", type=lambda s: int(s, 0), default=0, help="sd-crc: the first block")
+    p.add_argument("--count", type=lambda s: int(s, 0), default=1, help="sd-crc: how many blocks")
     p.add_argument("--save", action="store_true",
                    help="firmware: also write it to flash, for the boot loader to run at power-on")
     args = p.parse_args(argv[1:])
@@ -245,6 +253,9 @@ def main(argv):
             print("sending %s (%d bytes, about %.1f s)" % (args.file, len(data), len(data) * 10 / BAUD))
             ser.write(encode_load(data))
             lines = read_reply(ser, timeout=len(data) * 10 / BAUD + 5)
+        elif args.command == "sd-crc":
+            ser.write(encode_sd_crc(args.lba, args.count))
+            lines = read_reply(ser, timeout=args.count * 0.01 + 10)
         elif args.command == "firmware":
             if not args.file:
                 sys.exit("firmware needs a firmware .bin file")

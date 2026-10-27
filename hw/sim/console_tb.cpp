@@ -27,14 +27,16 @@
 //                                at the end, every row that lasted 4 frames or more
 //                                must have been shown, and the Song's name must be
 //                                on the screen. The Voice scopes (issue #23) too:
-//                                every point captured must be its Voice's output in
-//                                the reference >> 7 times 0.75, taken at a rising zero crossing
-//                                (or after the time-out) and then every 64 colour
-//                                clocks; and every frame's scope pixels must be the
+//                                every point the hardware writes must be the next one
+//                                that a model of the capture makes from the reference
+//                                Voices' output (a rising zero crossing, then 316
+//                                points 256 colour clocks apart on the straight lines
+//                                between sample changes); and every frame's scope pixels must be the
 //                                traces drawn from the slots on screen: the newest
 //                                capture bright, the two before at half and a quarter
 //
 // Clocks run at their exact ratio (50 MHz : 25.2 MHz = 125 : 63).
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -48,6 +50,7 @@
 #include "mod.h"
 #include "paula_model.h"
 #include "replayer.h"
+#include "scope_ref.h"
 
 static const int BIT = 50;                         // 50 MHz / 1 Mbaud
 
@@ -158,8 +161,8 @@ static int scope_front;
 static uint64_t scope_enable_changed;      // pixel clock of the last change
 static int scope_frames;
 static uint64_t scope_trace_pixels, scope_points;
-static uint64_t scope_wait_from[4], scope_last_frame[4];
-static int scope_last_index[4] = {-1, -1, -1, -1};
+static ScopeRef sref[4];       // the scope capture's reference: hw/sim/scope_ref.h
+
 
 // What the scopes draw at (x, y), 0 for nothing (hw/rtl/scopes.v): the
 // newest capture's trace, else the one before at half brightness, else the
@@ -174,9 +177,14 @@ static uint32_t scope_pixel(int x, int y)
     int dy = 48 - (yl >= 96 ? yl - 96 : yl);
     for (int age = 0; age < 3; age++) {
         int slot = (scope_front - age) & 3;
-        int here = scope_buf[v][slot][col], before = col ? scope_buf[v][slot][col - 1] : here;
-        int lo = here < before ? here : before, hi = here < before ? before : here;
-        if (dy >= lo && dy <= hi)
+        // the line through the points: this column spans from its midpoint with the
+        // column before to its midpoint with the column after, taking in its own point
+        // (in half pixels); the first and last columns use their own point for the missing one
+        int c = scope_buf[v][slot][col];
+        int p = col > 0 ? scope_buf[v][slot][col - 1] : c, n = col < 315 ? scope_buf[v][slot][col + 1] : c;
+        int ml = p + c, mr = c + n, c2 = 2 * c;
+        int lo = std::min(std::min(ml, mr), c2), hi = std::max(std::max(ml, mr), c2);
+        if (2 * dy >= lo && 2 * dy <= hi)
             return age == 0 ? colour[v] : age == 1 ? (colour[v] >> 1) & 0x7F7F7F : (colour[v] >> 2) & 0x3F3F3F;
     }
     return dy == 0 ? 0x555555 : 0;
@@ -382,42 +390,55 @@ int main(int argc, char **argv)
             dut->sd_dq_i = sdram.dq_garbage();
             dut->clk = 1;
             dut->eval();
-            if (dut->dbg_scope_start)
-                for (int v = 0; v < 4; v++) scope_wait_from[v] = ref.audio_frames;
             if (!status_song.empty()) {
                 if (dut->dbg_paula_we && dut->dbg_paula_addr == PAULA_OPTIONS)
                     ref.start(status_song, dut->dbg_paula_wdata);     // the firmware starts the Song
-                if (ref.started && dut->audio_valid) {
-                    paula_frame_t e = ref.next(clk_no);
-                    // the scopes' capture: each point is its Voice's output >> 7, from
-                    // a rising zero crossing (or the time-out), then every 128 frames
-                    for (int v = 0; v < 4; v++) {
-                        if (!(dut->dbg_scope_we >> v & 1)) continue;
-                        int index = (int)(dut->dbg_scope_index >> (9 * v) & 0x1FF);
-                        int8_t point = (int8_t)(dut->dbg_scope_points >> (8 * v) & 0xFF);
-                        scope_buf[v][dut->dbg_scope_slot][index] = point;
-                        scope_points++;
-                        int want = (ref.voices[v] >> 7) - ((ref.voices[v] >> 7) >> 2);   // >> 7, times 0.75
-                        if (point != want && failures++ < 20)
-                            printf("FAIL: scope %d point %d is %d, the reference Voice is %d (so %d)\n",
-                                   v + 1, index, point, ref.voices[v], want);
-                        bool crossing = ref.prev_voices[v] < 0 && ref.voices[v] >= 0;
-                        if (index == 0 ? !(crossing || ref.audio_frames - scope_wait_from[v] > 36000)
-                                       : (index != scope_last_index[v] + 1 ||
-                                          ref.audio_frames - scope_last_frame[v] != 64))
-                            if (failures++ < 20)
-                                printf("FAIL: scope %d point %d taken at the wrong time (frame %llu; last point %d "
-                                       "at %llu)\n", v + 1, index, (unsigned long long)ref.audio_frames,
-                                       scope_last_index[v], (unsigned long long)scope_last_frame[v]);
-                        scope_last_index[v] = index;
-                        scope_last_frame[v] = ref.audio_frames;
-                    }
-                    if ((int16_t)dut->audio_l != e.left || (int16_t)dut->audio_r != e.right)
+                // The scopes' points as the hardware writes them (a clock each, some time
+                // after the frame that made them): each must be the next one the reference made.
+                for (int v = 0; v < 4; v++) {
+                    if (!(dut->dbg_scope_we >> v & 1)) continue;
+                    int index = (int)(dut->dbg_scope_index >> (9 * v) & 0x1FF);
+                    int point = (int8_t)(dut->dbg_scope_points >> (8 * v) & 0xFF);
+                    scope_buf[v][dut->dbg_scope_slot][index] = (int8_t)point;
+                    scope_points++;
+                    if (!ref.started) continue;
+                    if (sref[v].expect.empty()) {
                         if (failures++ < 20)
-                            printf("FAIL: audio frame %llu: chip (%d, %d), reference (%d, %d)\n",
-                                   (unsigned long long)ref.audio_frames, (int16_t)dut->audio_l,
-                                   (int16_t)dut->audio_r, e.left, e.right);
+                            printf("FAIL: scope %d wrote point %d (%d) before the reference made it\n",
+                                   v + 1, index, point);
+                    } else {
+                        std::pair<int, int> want = sref[v].expect.front();
+                        sref[v].expect.pop_front();
+                        if ((want.first != index || want.second != point) && failures++ < 20)
+                            printf("FAIL: scope %d wrote point %d = %d; the reference's next is point %d = %d\n",
+                                   v + 1, index, point, want.first, want.second);
+                    }
                 }
+                bool frame = ref.started && dut->audio_valid;
+                paula_frame_t e = {0, 0};
+                if (frame) e = ref.next(clk_no);
+                if (ref.started) {
+                    bool all_done = true;
+                    for (int v = 0; v < 4; v++) all_done = all_done && sref[v].phase == 3;
+                    if (dut->dbg_scope_start) {                        // a new capture begins
+                        for (int v = 0; v < 4; v++) {
+                            if (!sref[v].expect.empty() && failures++ < 20)
+                                printf("FAIL: scope %d: %zu points the reference made were never written\n",
+                                       v + 1, sref[v].expect.size());
+                            sref[v] = ScopeRef();
+                            sref[v].phase = 1;
+                        }
+                    } else if (all_done) {
+                        for (int v = 0; v < 4; v++) sref[v].phase = 0;
+                    } else if (frame) {
+                        for (int v = 0; v < 4; v++) scope_frame(sref[v], ref.voices[v], ref.prev_voices[v]);
+                    }
+                }
+                if (frame && ((int16_t)dut->audio_l != e.left || (int16_t)dut->audio_r != e.right))
+                    if (failures++ < 20)
+                        printf("FAIL: audio frame %llu: chip (%d, %d), reference (%d, %d)\n",
+                               (unsigned long long)ref.audio_frames, (int16_t)dut->audio_l,
+                               (int16_t)dut->audio_r, e.left, e.right);
             }
             if (sdram.failures) { printf("serial: %s\nFAIL: SDRAM rules broken\n", text.c_str()); return 1; }
 

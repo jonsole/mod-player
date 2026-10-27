@@ -63,6 +63,7 @@ module console_wrap #(
         .sd_ba(sd_ba), .sd_a(sd_a), .sd_dqm(sd_dqm), .sd_dq_o(sd_dq_o), .sd_dq_oe(sd_dq_oe), .sd_dq_i(sd_dq_i),
         .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),
         .flash_cs_n(), .flash_sck(), .flash_mosi(), .flash_miso(1'b1),     // an erased flash
+        .card_cs_n(), .card_sck(), .card_mosi(), .card_miso(1'b1),         // no card
         .ext_valid(ext_valid), .ext_addr(ext_addr), .ext_wdata(ext_wdata), .ext_wstrb(ext_wstrb),
         .ext_ready(ext_ready), .ext_rdata(ext_rdata),
         .dbg_paula_we(dbg_paula_we), .dbg_paula_addr(dbg_paula_addr), .dbg_paula_wdata(dbg_paula_wdata)

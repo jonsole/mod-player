@@ -11,6 +11,7 @@
 //   0x2000_0100  Paula (firmware/replayer/paula_port.h)
 //   0x2000_0200  board I/O: +0 LEDs (write), +4 DIP switches (read, 1 = on)
 //   0x2000_0300  SPI flash (hw/rtl/spi_master.v)
+//   0x2000_0400  microSD card in SPI mode (the same SPI master, with its slow clock)
 //   0x2001_0000  external bus (ext_*): the HDMI build's text console
 //                (hw/rtl/text_console.v); without one, ext_ready is tied
 //                high and reads give 0
@@ -58,6 +59,11 @@ module soc #(
     output wire                  flash_sck,
     output wire                  flash_mosi,
     input wire                   flash_miso,
+    // microSD card, in SPI mode
+    output wire                  card_cs_n,
+    output wire                  card_sck,
+    output wire                  card_mosi,
+    input wire                   card_miso,
     // external bus, 0x2001_0000-0x2001_7FFF: held until ext_ready
     output wire                  ext_valid,
     output wire          [14:2]  ext_addr,
@@ -104,6 +110,7 @@ module soc #(
     wire sel_gpio = sel_low && mem_addr[15:8] == 8'h02;
     wire sel_paula = sel_low && mem_addr[15:8] == 8'h01;
     wire sel_spi  = sel_low && mem_addr[15:8] == 8'h03;
+    wire sel_sd   = sel_low && mem_addr[15:8] == 8'h04;
     assign ext_valid = mem_valid && sel_ext && !mem_ready;
     assign ext_addr  = mem_addr[14:2];
     assign ext_wdata = mem_wdata;
@@ -193,8 +200,20 @@ module soc #(
         .clk(clk), .rst(rst),
         .start(spi_write && mem_addr[3:2] == 2'd0), .wdata(mem_wdata[7:0]),
         .set_cs(spi_write && mem_addr[3:2] == 2'd1), .cs(mem_wdata[0]),
-        .rdata(spi_rdata), .busy(spi_busy), .cs_active(spi_cs),
+        .slow(1'b0), .rdata(spi_rdata), .busy(spi_busy), .cs_active(spi_cs),
         .cs_n(flash_cs_n), .sck(flash_sck), .mosi(flash_mosi), .miso(flash_miso)
+    );
+
+    // ---- microSD card ----
+    wire       sdc_write = mem_valid && !mem_ready && sel_sd && mem_wstrb != 0;
+    wire [7:0] sdc_rdata;
+    wire       sdc_busy, sdc_cs;
+    spi_master sdspi (
+        .clk(clk), .rst(rst),
+        .start(sdc_write && mem_addr[3:2] == 2'd0), .wdata(mem_wdata[7:0]),
+        .set_cs(sdc_write && mem_addr[3:2] == 2'd1), .cs(mem_wdata[0]),
+        .slow(mem_wdata[1]), .rdata(sdc_rdata), .busy(sdc_busy), .cs_active(sdc_cs),
+        .cs_n(card_cs_n), .sck(card_sck), .mosi(card_mosi), .miso(card_miso)
     );
 
     // ---- bus responses ----
@@ -231,6 +250,9 @@ module soc #(
                     mem_rdata <= ext_rdata;
                     mem_ready <= 1'b1;
                 end
+            end else if (sel_sd) begin
+                mem_rdata <= mem_addr[3:2] == 2'd0 ? {24'd0, sdc_rdata} : {30'd0, sdc_cs, sdc_busy};
+                mem_ready <= 1'b1;
             end else if (sel_gpio) begin
                 if (mem_wstrb != 0 && mem_addr[3:2] == 2'd0)
                     leds <= mem_wdata[7:0];

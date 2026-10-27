@@ -10,7 +10,7 @@ Written 2026-10-25, at the end of the first (cloud) Claude Code session, so the 
 | 2 | The chip in simulation: Verilog Paula, PicoRV32 SoC, SDRAM controller, delta-sigma DAC, serial loading, full chip | Done; full chip matches the PC reference sample for sample |
 | 3 | Board build: `top.v`, pins, ISE build (Makefile + `build.bat`) | Done 2026-10-25: built with ISE 14.7 on Windows 11; boots and plays `gods.mod` on the board (issue #16). Fixes and setup notes in `docs/board.md` |
 | 5 | Boot loader, Song saved to flash (ADR-0006, ADR-0011) | Flash writes, saved Song (#17-#19) done and working on the board. Boot loader (#20) done in simulation (`make boot-test`): the FPGA image holds only the boot loader, which runs firmware from flash or serial (`modplayer.py firmware [--save]`). Works on the board, 2026-10-25: firmware sent over serial, saved, and run from flash |
-| 6 | microSD | Not started |
+| 6 | microSD | Card access (#25, ADR-0015) done in simulation: an SPI-mode driver, a card model with the real rules, `D` and `E` serial commands. FAT32 and loading a Song from the card (#26) next |
 | 7 | HDMI audio and status screen | 640x480p60, 48 kHz audio through an exact integer Resampler (ADR-0010), working on the owner's display. Text console (#21, ADR-0012): 53 x 20 cells of Spleen 12x24, 16 colours, written by the CPU; checked frame by frame in simulation (`make console-test`). Status screen (#22): Song name, Position/Pattern/Row, speed and BPM, following the Song within two frames, checked against a reference Replayer. Voice scopes (#23, ADR-0013): drawn by hardware from Paula's per-Voice output, triggered on rising zero crossings, with fading persistence. Spectrum analyser (#24, ADR-0014): a hardware FFT of the Resampler's output, 48 bars, matched to a C model (`make spectrum-test`) |
 
 `docs/engineering-notes.md` tells the story of how it was built (published at https://claude.ai/artifact/1u8FxjXG6NGccab94wUaZw). `docs/board.md` is the build/program/use guide with troubleshooting.
@@ -64,6 +64,7 @@ Handy tools: `build/render song.mod out.wav` (PC reference audio), `tools/modpla
 |---|---|
 | `firmware/replayer/` | The Replayer: freestanding C, talks to Paula only through `paula_port.h` |
 | `firmware/boot/` | The boot loader: at 0xF000 in the firmware RAM, loads the firmware from flash or serial (ADR-0011) |
+| `firmware/sd.c` | The microSD card in SPI mode: start it, read a block |
 | `firmware/console.c` | The HDMI text console: put, print, clear, wait for the blanking |
 | `firmware/status.c` | The status screen: drawn into a copy in RAM, changed cells copied to the console in the blanking |
 | `firmware/*.c` | Board firmware: `main.c` (boot, self-tests, command loop), `player.c`, `serial.c`, `crc32.c`, `memtest.c`, `hw.h` (address map) |

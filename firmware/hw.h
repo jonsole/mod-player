@@ -37,6 +37,9 @@
 #define SPI_BUSY      0x1u              /*   a transfer is in progress */
 #define SPI_CS        0x2u              /*   chip select is on */
 
+#define SD_DATA     REG32(0x20000400u)  /* the microSD card's SPI master: as SPI_DATA */
+#define SD_CTRL     REG32(0x20000404u)  /* write bit 0: chip select on, bit 1: slow clock; read as SPI_CTRL */
+
 #define CONSOLE_BASE   0x20010000u     /* HDMI text console cells (firmware/console.h) */
 #define CONSOLE_STATUS REG32(0x20014000u)
 

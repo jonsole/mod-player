@@ -108,6 +108,10 @@ The firmware must be running (after `build.bat prog`, the boot loader runs the f
 
 `build.bat flash` / `make flash` (openFPGALoader `-f`) don't work on this board. openFPGALoader has no SPI-over-JTAG bridge for the XC6SLX25 in FTG256. One built with ISE from openFPGALoader's own source (`xilinx_spiOverJtag.v`, `constr_xc6s_ftg256.ucf`) loads and answers, but reads the flash's ID as all 1s or all 0s, although our own design reads it fine on the same pins.
 
+## microSD card
+
+The socket takes a microSD card, used in SPI mode (ADR-0015). So far the firmware can start it and read blocks (`modplayer.py sd-init`, then `modplayer.py sd-crc --lba N --count N`, which prints the CRC-32 of those 512-byte blocks, to compare with the CRC-32 of the same bytes read on the PC). A card that isn't there gives `ERR no SD card`. Loading Songs from a FAT32 card is issue #26.
+
 ## If it doesn't work
 
 In rough order of likelihood. Bring-up hit 1, 3 (in a different form) and 4; the notes say what the fixes were.

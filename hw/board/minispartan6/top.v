@@ -7,6 +7,7 @@
 //               D1 = its RXD (our serial output)
 //   AUDIO2/1    jack tip (left) / ring (right), each through 3.3 kOhm + 4.7 nF
 //   SW1..4      DIP switches to ground, with pull-ups: on = 0
+//   SD_*        the microSD socket, used in SPI mode (hw/rtl/spi_master.v)
 //   LEDS        active high
 //   TMDS_P/N    HDMI out (J3), only in the HDMI build (`define HDMI,
 //               build.bat hdmi): pairs 0 blue, 1 green, 2 red, 3 clock
@@ -31,6 +32,12 @@ module top #(
     output        FLASH_CCLK,
     output        FLASH_MOSI,
     input         FLASH_MISO,
+    // microSD card, in SPI mode: CD/DAT3 is the chip select, CMD the data
+    // out, DAT0 the data in
+    output        SD_CLK,
+    output        SD_CMD,
+    input         SD_DAT0,
+    output        SD_CD_DAT3,
 `ifdef HDMI
     output [3:0]  TMDS_P,
     output [3:0]  TMDS_N,
@@ -77,6 +84,7 @@ module top #(
         .sd_dq_o(sd_dq_o), .sd_dq_oe(sd_dq_oe), .sd_dq_i(sd_dq_i),
         .audio_valid(audio_valid), .audio_l(audio_l), .audio_r(audio_r), .audio_voices(audio_voices),
         .flash_cs_n(FLASH_CS), .flash_sck(FLASH_CCLK), .flash_mosi(FLASH_MOSI), .flash_miso(FLASH_MISO),
+        .card_cs_n(SD_CD_DAT3), .card_sck(SD_CLK), .card_mosi(SD_CMD), .card_miso(SD_DAT0),
         .ext_valid(ext_valid), .ext_addr(ext_addr), .ext_wdata(ext_wdata), .ext_wstrb(ext_wstrb),
         .ext_ready(ext_ready), .ext_rdata(ext_rdata),
         .dbg_paula_we(), .dbg_paula_addr(), .dbg_paula_wdata()

@@ -40,6 +40,7 @@ TIMEOUT = 36000
 SILENT_STRIDE = 64                      # a Voice that never changes
 COLOURS = [(0x55, 0xFF, 0x55), (0x55, 0xFF, 0xFF), (0xFF, 0xFF, 0x55), (0xFF, 0x55, 0xFF)]
 MODES = [("hold", 64), ("hold", 256), ("line", 256), ("sample", 0)]
+RULE = "line"                           # how a column is drawn: "line" through the points, or "bars"
 
 
 def point(v):
@@ -134,11 +135,69 @@ def draw(newest_first):
             pts = newest_first[age][v]
             colour = tuple(c // (1, 2, 4)[age] for c in COLOURS[v])
             for x in range(POINTS):
-                here, before = pts[x], pts[x - 1] if x else pts[x]
-                for dy in range(min(here, before), max(here, before) + 1):
-                    y = y0 + 48 - dy
-                    if y0 <= y < y0 + 96:
-                        put(x0 + x, y, colour)
+                # the line through the points: in this column it spans from the
+                # midpoint with the column before to the midpoint with the column
+                # after, taking in the point itself (all in half pixels)
+                p0, p1, p2 = pts[max(x - 1, 0)], pts[x], pts[min(x + 1, POINTS - 1)]
+                if RULE == "bars":
+                    lo2, hi2 = 2 * min(p1, pts[x - 1] if x else p1), 2 * max(p1, pts[x - 1] if x else p1)
+                else:
+                    ends = (p0 + p1, 2 * p1, p1 + p2)
+                    lo2, hi2 = min(ends), max(ends)
+                for dy in range(lo2 // 2 - 1, hi2 // 2 + 2):
+                    if lo2 <= 2 * dy <= hi2:
+                        y = y0 + 48 - dy
+                        if y0 <= y < y0 + 96:
+                            put(x0 + x, y, colour)
+    return bytes(img)
+
+
+def point4(v):
+    """The anti-aliased scopes' points: the output in quarter pixels, (3 v) >> 7: -192..192."""
+    return (3 * int(v)) >> 7
+
+
+def cover(p, c, n, dy):
+    """How much of the pixel dy (a row, in pixels above the centre line) the line
+    through the points covers in this column, 0..8: the column's span (from its
+    midpoint with the column before to its midpoint with the column after,
+    taking in its own point) in eighths of a pixel, made at least a pixel
+    long, against the pixel's own extent."""
+    ml, mr, c2 = p + c, c + n, 2 * c
+    lo, hi = min(ml, mr, c2), max(ml, mr, c2)
+    if hi - lo < 8:
+        mid = (lo + hi) >> 1
+        lo, hi = mid - 4, mid + 4
+    return max(0, min(8, min(hi, 8 * dy + 4) - max(lo, 8 * dy - 4)))
+
+
+def draw_aa(newest_first):
+    """Like draw(), with the points in quarter pixels and the line anti-aliased:
+    a pixel's brightness is its coverage, the newest capture at full weight and
+    the two before at a half and a quarter (the strongest of the three wins)."""
+    img = bytearray(640 * 192 * 3)
+    for v in range(4):
+        x0, y0 = 2 + 320 * (v & 1), 96 * (v >> 1)
+        alpha = [[0] * 96 for _ in range(POINTS)]
+        for age in (2, 1, 0):
+            if age >= len(newest_first):
+                continue
+            pts = newest_first[age][v]
+            for x in range(POINTS):
+                p, c, n = pts[max(x - 1, 0)], pts[x], pts[min(x + 1, POINTS - 1)]
+                for dy in range(max(min(p + c, c + n, 2 * c) // 8 - 2, -47), min(max(p + c, c + n, 2 * c) // 8 + 3, 49)):
+                    cv = cover(p, c, n, dy)
+                    if cv:
+                        row = 48 - dy
+                        if 0 <= row < 96:
+                            alpha[x][row] = max(alpha[x][row], cv * (4, 2, 1)[age])
+        for x in range(POINTS):
+            for row in range(96):
+                a = alpha[x][row]
+                colour = tuple(c * a >> 5 for c in COLOURS[v]) if a else ((0x55,) * 3 if row == 48 else None)
+                if colour:
+                    o = ((y0 + row) * 640 + x0 + x) * 3
+                    img[o:o + 3] = bytes(colour)
     return bytes(img)
 
 

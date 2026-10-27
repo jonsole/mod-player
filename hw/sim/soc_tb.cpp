@@ -14,6 +14,11 @@
 //     --flash-fill B    start with every byte of the SPI flash model set to B
 //                       (default 0xff, erased)
 //     --flash-image F   then put F's bytes at the start of the flash model
+//     --sd-image F      a microSD card (hw/sim/spi_sd_model.h) with F as its
+//                       contents (whole 512-byte blocks); without it no card
+//                       is in the socket. --sd-sdsc: a standard-capacity card
+//                       (byte addresses); --sd-v1: a version 1 card (no CMD8);
+//                       --sd-polls N: ready after N ACMD41s (default 3)
 //     --no-console      the external bus answers at once and reads 0, as
 //                       the plain build's; otherwise it acts like the HDMI
 //                       build's text console (ADR-0012): present, blanking
@@ -32,6 +37,7 @@
 #include "verilated.h"
 #include "sdram_model.h"
 #include "spi_flash_model.h"
+#include "spi_sd_model.h"
 #include "mod.h"
 #include "paula_model.h"
 #include "replayer.h"
@@ -108,6 +114,7 @@ int main(int argc, char **argv)
     std::vector<Step> steps;
     std::vector<uint8_t> preload;
     int switches = 0, flash_fill = 0xFF;
+    static SpiSdModel sd;
     bool console = true;
     int console_busy = 0;
     long long console_writes = 0;
@@ -128,6 +135,10 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--no-console")) console = false;
         else if (!strcmp(argv[i], "--flash-fill") && i + 1 < argc) flash_fill = (int)strtol(argv[++i], nullptr, 0);
         else if (!strcmp(argv[i], "--flash-image") && i + 1 < argc) flash_image = read_file(argv[++i]);
+        else if (!strcmp(argv[i], "--sd-image") && i + 1 < argc) { sd.image = read_file(argv[++i]); sd.present = true; }
+        else if (!strcmp(argv[i], "--sd-sdsc")) sd.sdhc = false;
+        else if (!strcmp(argv[i], "--sd-v1")) { sd.v2 = false; sd.sdhc = false; }
+        else if (!strcmp(argv[i], "--sd-polls") && i + 1 < argc) sd.acmd41_polls = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--compare") && i + 2 < argc) {
             compare_song = read_file(argv[++i]);
             compare_frames = (long long)(atof(argv[++i]) * PAULA_CCK_HZ);
@@ -157,6 +168,7 @@ int main(int argc, char **argv)
     }
     dut->rst = 1;
     dut->uart_rx = 1;
+    dut->card_miso = 1;
     dut->ext_ready = 1;
     dut->ext_rdata = 0;
     dut->switches = switches;
@@ -219,6 +231,11 @@ int main(int argc, char **argv)
         dut->clk = 1;
         dut->eval();
         dut->flash_miso = flash.step(dut->flash_cs_n, dut->flash_sck, dut->flash_mosi);
+        dut->card_miso = sd.step(dut->card_cs_n, dut->card_sck, dut->card_mosi);
+        if (sd.failures) {
+            printf("serial: %s\nFAIL: SD card rules broken\n", text.c_str());
+            return 1;
+        }
         if (flash.failures) {
             printf("serial: %s\nFAIL: SPI flash rules broken\n", text.c_str());
             return 1;

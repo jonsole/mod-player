@@ -7,6 +7,7 @@
 #include "memtest.h"
 #include "mod.h"
 #include "player.h"
+#include "sd.h"
 #include "serial.h"
 #include "status.h"
 #include "version.h"
@@ -211,6 +212,43 @@ static void play_saved_song(void)
     serial_puts("\r\n");
 }
 
+/* D: start the SD card. */
+static void cmd_sd_init(void)
+{
+    player_stop();
+    int err = sd_init();
+    if (err)
+        reply_err(sd_error_text(err));
+    else
+        serial_puts(sd_is_sdhc() ? "OK sd sdhc\r\n" : "OK sd sdsc\r\n");
+}
+
+/* E: first block (u32), count (u32): the CRC-32 of those blocks of the
+ * started card. */
+static void cmd_sd_crc(void)
+{
+    static uint8_t block[SD_BLOCK];
+    uint32_t lba, count;
+    if (get_u32(&lba) < 0 || get_u32(&count) < 0) {
+        reply_err("timeout");
+        return;
+    }
+    player_stop();
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < count; i++) {
+        int err = sd_read_block(lba + i, block);
+        if (err) {
+            reply_err(sd_error_text(err));
+            return;
+        }
+        for (uint32_t j = 0; j < SD_BLOCK; j++)
+            crc = crc32_update(crc, block[j]);
+    }
+    serial_puts("OK crc ");
+    serial_put_hex(~crc);
+    serial_puts("\r\n");
+}
+
 /* T: row, column, attribute, length (one byte each), then the text: puts
  * it on the HDMI text console. */
 static void cmd_text(void)
@@ -316,6 +354,12 @@ static void command(int c)
         break;
     case 'B':
         enter_boot_loader();
+        break;
+    case 'D':
+        cmd_sd_init();
+        break;
+    case 'E':
+        cmd_sd_crc();
         break;
     case 'T':
         cmd_text();

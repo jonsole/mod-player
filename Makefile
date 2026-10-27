@@ -148,7 +148,7 @@ $(BUILD)/soc_tb_fast: $(SOC_TB_DEPS) | $(BUILD)
 
 soc-test: $(BUILD)/soc_tb
 	$(BUILD)/soc_tb "ready"
-	python3 -m unittest tests.test_soc
+	python3 -m unittest tests.test_soc tests.test_sd
 
 # The SoC as the FPGA image has it: only the boot loader in RAM, started at
 # its power-on entry (issue #20)
@@ -306,7 +306,7 @@ HDMI_CHAIN_SECONDS ?= 2
 # The text console end to end (issue #21): CPU and firmware, HDMI out,
 # every frame decoded and checked against the console model
 $(BUILD)/console_tb: $(SOC_RTL) $(HDMI_OUT_RTL) hw/rtl/console_font.hex hw/rtl/resampler_coefs.hex $(SPECTRUM_TABLES) \
-		hw/sim/console_wrap.v hw/sim/console_tb.cpp hw/sim/hdmi_sink.h hw/sim/sdram_model.h \
+		hw/sim/console_wrap.v hw/sim/console_tb.cpp hw/sim/scope_ref.h hw/sim/hdmi_sink.h hw/sim/sdram_model.h \
 		$(SIM_C) $(wildcard firmware/replayer/*.h host/*.h) $(BUILD)/fw/firmware0.hex | $(BUILD)
 	$(VERILATOR) $(VFLAGS) -Wno-lint -Wno-style --top-module console_wrap \
 		$(foreach n,0 1 2 3,-GFW$(n)='"$(CURDIR)/$(BUILD)/fw/firmware$(n).hex"') \
@@ -330,9 +330,17 @@ $(BUILD)/scopes_tb: hw/rtl/scopes.v hw/sim/scopes_tb.cpp | $(BUILD)
 		-Mdir $(BUILD)/obj_scopes -o scopes_tb >$(BUILD)/scopes_tb.log 2>&1 || (cat $(BUILD)/scopes_tb.log; false)
 	cp $(BUILD)/obj_scopes/scopes_tb $@
 
-console-test: $(BUILD)/console_tb $(BUILD)/text_console_tb $(BUILD)/scopes_tb
+# one Voice's capture against its reference, on random input
+$(BUILD)/scope_capture_tb: hw/rtl/scopes.v hw/sim/scope_one.v hw/sim/scope_ref.h hw/sim/scope_capture_tb.cpp | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --top-module scope_one hw/sim/scope_one.v hw/rtl/scopes.v $(CURDIR)/hw/sim/scope_capture_tb.cpp \
+		-CFLAGS "-O2 -I$(CURDIR)/hw/sim" -Mdir $(BUILD)/obj_scope_capture -o scope_capture_tb \
+		>$(BUILD)/scope_capture_tb.log 2>&1 || (cat $(BUILD)/scope_capture_tb.log; false)
+	cp $(BUILD)/obj_scope_capture/scope_capture_tb $@
+
+console-test: $(BUILD)/console_tb $(BUILD)/text_console_tb $(BUILD)/scopes_tb $(BUILD)/scope_capture_tb
 	$(BUILD)/text_console_tb 400000
 	$(BUILD)/scopes_tb 120
+	$(BUILD)/scope_capture_tb 60
 	python3 -m unittest tests.test_console
 
 # ---- spectrum analyser (issue #24, ADR-0014) ------------------------------------
